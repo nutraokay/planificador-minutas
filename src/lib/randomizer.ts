@@ -267,7 +267,20 @@ export function generarMinuta(input: GenerarMinutaInput): SlotGenerado[] {
         return acc;
       }, []);
 
-      for (const regla of reglasVigentes(reglasComposicion, excMap, lunesISO)) {
+      // Varias reglas de composición compiten por los mismos cupos escasos
+      // de la semana (ej: legumbre, pescado, cerdo, pollo, vacuno, fritura,
+      // platos completos...). Se procesan de la más difícil de cumplir a la
+      // más fácil (menos platos elegibles en el catálogo primero), para que
+      // una regla con muchas opciones no le gane el cupo a una con pocas.
+      const reglasOrdenadas = [...reglasVigentes(reglasComposicion, excMap, lunesISO)].sort((a, b) => {
+        const tagA = ((a.parametros as any).tag as string) || "";
+        const tagB = ((b.parametros as any).tag as string) || "";
+        const nA = dishesActivos.filter((d) => tieneTag(d.tags, tagA) && esPlatoDeFondo(d.tags)).length;
+        const nB = dishesActivos.filter((d) => tieneTag(d.tags, tagB) && esPlatoDeFondo(d.tags)).length;
+        return nA - nB;
+      });
+
+      for (const regla of reglasOrdenadas) {
         const tag = (regla.parametros as any).tag as string;
         const minimo = Number((regla.parametros as any).minimo) || 1;
         if (!tag) continue;
