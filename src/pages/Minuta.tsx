@@ -56,7 +56,7 @@ export function Minuta() {
 
   async function handleAleatorizar() {
     const confirmado = window.confirm(
-      "Esto regenerará todos los slots no editados manualmente. Los slots marcados como manuales no se tocarán. ¿Continuar?",
+      "Esto va a regenerar TODA la minuta del mes, incluyendo lo que hayas editado a mano. ¿Continuar?",
     );
     if (!confirmado) return;
     await aleatorizar(dishes, rules, exceptions);

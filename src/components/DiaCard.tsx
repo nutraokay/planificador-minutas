@@ -77,7 +77,7 @@ export function DiaCard({
           dailySlot={slot1}
           opciones={esViernes ? poolViernes : dishesOrdenados}
           advertencias={advertencias[1] ?? []}
-          acompanamiento={!esViernes && dish1 && necesitaAcompanamiento(dish1.tags) ? acompanamientoDia : undefined}
+          acompanamiento={dish1 && necesitaAcompanamiento(dish1.tags) ? acompanamientoDia : undefined}
           onSet={(id) => onSetSlotDish(1, id)}
           onLimpiarManual={() => onLimpiarManual(1)}
         />
@@ -93,25 +93,23 @@ export function DiaCard({
           />
         )}
 
-        {!esViernes && (
-          <div>
-            <span className="text-[11px] font-medium text-slate-400">Acompañamiento del día</span>
-            <select
-              value={acompanamientoIdDelDia ?? ""}
-              onChange={(e) => onSetAcompanamientoDia(e.target.value || null)}
-              className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-fucsia-400"
-            >
-              <option value="">— sin acompañamiento —</option>
-              {poolAcompanamiento.map((d) => (
-                <option key={d.id} value={d.id} disabled={!d.activo}>
-                  {d.nombre}
-                  {!d.activo ? " (inactivo)" : ""}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-[10px] text-slate-400">Se combina con Opción 1 y 2, salvo que sean plato completo o legumbre.</p>
-          </div>
-        )}
+        <div>
+          <span className="text-[11px] font-medium text-slate-400">Acompañamiento del día</span>
+          <select
+            value={acompanamientoIdDelDia ?? ""}
+            onChange={(e) => onSetAcompanamientoDia(e.target.value || null)}
+            className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-fucsia-400"
+          >
+            <option value="">— sin acompañamiento —</option>
+            {poolAcompanamiento.map((d) => (
+              <option key={d.id} value={d.id} disabled={!d.activo}>
+                {d.nombre}
+                {!d.activo ? " (inactivo)" : ""}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-[10px] text-slate-400">Se combina con Opción 1{platosDelDia === 2 ? " y 2" : ""}, salvo que sea plato completo o legumbre.</p>
+        </div>
       </div>
     </div>
   );

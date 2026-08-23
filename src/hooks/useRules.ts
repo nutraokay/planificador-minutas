@@ -16,7 +16,7 @@ const REGLAS_SEED: { tipo: RuleType; parametros: Record<string, unknown>; activa
   { tipo: "dias_permitidos", parametros: {}, activa: true },
   { tipo: "mismo_tipo_no_repite_dia_semana", parametros: { tag: "proteina:pollo" }, activa: true },
   { tipo: "composicion_semanal_minima", parametros: { tag: "legumbre", minimo: 1 }, activa: true },
-  { tipo: "composicion_semanal_minima", parametros: { tag: "pescado", minimo: 1 }, activa: true },
+  { tipo: "composicion_semanal_minima", parametros: { tag: "proteina:pescado", minimo: 1 }, activa: true },
   { tipo: "restriccion_por_palabra", parametros: { palabra: "cerdo", dias_permitidos: [3, 4, 5] }, activa: false },
 ];
 

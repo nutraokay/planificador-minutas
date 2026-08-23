@@ -183,7 +183,7 @@ export function generarMinuta(input: GenerarMinutaInput): SlotGenerado[] {
       // fondo lo necesita y todavía no hay uno fijado manualmente) ───────
       const slotsQueNecesitan: (1 | 2)[] = [];
       for (const [slot, dish] of fondosDelDia) {
-        if (dish && !esViernes && necesitaAcompanamiento(dish.tags)) slotsQueNecesitan.push(slot);
+        if (dish && necesitaAcompanamiento(dish.tags)) slotsQueNecesitan.push(slot);
       }
 
       let conflictoAcomp = false;
@@ -223,7 +223,7 @@ export function generarMinuta(input: GenerarMinutaInput): SlotGenerado[] {
         }
 
         const dish = fondosDelDia.get(slot) ?? null;
-        const necesita = !!dish && !esViernes && necesitaAcompanamiento(dish.tags);
+        const necesita = !!dish && necesitaAcompanamiento(dish.tags);
         const acompId = necesita ? acompanamientoDelDia?.id ?? null : null;
 
         const { conflicto: conflictoFondo, detalle: detalleFondo } = conflictosFondo.get(slot) ?? { conflicto: false, detalle: null };
@@ -286,17 +286,29 @@ export function generarMinuta(input: GenerarMinutaInput): SlotGenerado[] {
           const ctx: SlotCtx = { fecha: s.fecha, diaSemana, semanaIndice: semana.indice };
           const reglasHoy = reglasVigentes(rules, excMap, lunesISO).filter((r) => r.tipo !== "composicion_semanal_minima");
           const historialSinEsteSlot = historial.filter((h) => !(h.fecha === s.fecha && h.slot === s.slot));
-          const candidatos = poolBase.filter((d) => violacionesDuras(d, ctx, historialSinEsteSlot, reglasHoy).length === 0);
+          // composicion_semanal_minima es obligatoria: si no hay candidato
+          // respetando todo, se relajan otras reglas (mismo orden que en la
+          // generación normal) antes de darla por incumplida.
+          const { candidatos, conflicto: conflictoSwap, detalle: detalleSwap } = elegirConRelajacion(
+            poolBase,
+            ctx,
+            historialSinEsteSlot,
+            reglasHoy,
+          );
 
           if (candidatos.length > 0) {
             const nuevoDish = elegirAleatorio(candidatos);
             s.dish_id = nuevoDish.id;
+            s.conflicto = conflictoSwap;
+            s.conflicto_detalle = conflictoSwap
+              ? `Recolocado para cumplir composición semanal mínima (${tag}) — ${detalleSwap}`
+              : null;
 
             // Ajusta el acompañamiento de este slot al nuevo plato: si ya
             // no lo necesita (plato completo/legumbre), se quita; si lo
             // necesita y no tenía uno, intenta reusar el del otro slot del
             // mismo día (para mantener "mismo acompañamiento del día").
-            if (!esViernes && necesitaAcompanamiento(nuevoDish.tags)) {
+            if (necesitaAcompanamiento(nuevoDish.tags)) {
               if (!s.acompanamiento_id) {
                 const otroDelDia = salida.find((o) => o.fecha === s.fecha && o !== s && o.acompanamiento_id);
                 if (otroDelDia) s.acompanamiento_id = otroDelDia.acompanamiento_id;

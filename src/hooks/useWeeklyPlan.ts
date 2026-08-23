@@ -159,7 +159,11 @@ export function useWeeklyPlan(anio: number, mes: number) {
     if (!plan) return;
     setAleatorizando(true);
     try {
-      const generados = generarMinuta({ anio, mes, dishes, rules, exceptions, slotsExistentes: slots });
+      // "Aleatorizar mes" siempre regenera todo el mes, incluyendo lo
+      // editado a mano: se ignora es_manual para que ningún slot quede
+      // protegido de la nueva corrida.
+      const slotsParaGenerar = slots.map((s) => ({ ...s, es_manual: false }));
+      const generados = generarMinuta({ anio, mes, dishes, rules, exceptions, slotsExistentes: slotsParaGenerar });
 
       const filas = generados.map((g) => {
         const existente = slots.find((s) => s.fecha === g.fecha && s.slot === g.slot);
