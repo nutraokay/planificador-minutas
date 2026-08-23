@@ -118,18 +118,13 @@ function auditarRegla(
 
   switch (regla.tipo) {
     case "no_repetir_semana_siguiente": {
-      // El acompañamiento compartido del día aparece dos veces el mismo día
-      // (Opción 1 y 2) a propósito — se cuenta como una sola aparición, en
-      // ambos chequeos (misma semana y semana anterior).
-      const semanaSinDuplicadosDelDia: Asignacion[] = [];
-      for (const a of semana) {
-        const yaEsta =
-          esAcompanamiento(a.dish.tags) && semanaSinDuplicadosDelDia.some((x) => x.fecha === a.fecha && x.dish.id === a.dish.id);
-        if (!yaEsta) semanaSinDuplicadosDelDia.push(a);
-      }
+      // Los acompañamientos no se controlan con esta regla — para ellos
+      // manda solo "distancia mínima entre acompañamientos" (día
+      // siguiente/anterior), auditada aparte más abajo.
+      const semanaSinAcomp = semana.filter((a) => !esAcompanamiento(a.dish.tags));
 
       const porDish = new Map<string, Asignacion[]>();
-      for (const a of semanaSinDuplicadosDelDia) {
+      for (const a of semanaSinAcomp) {
         if (!porDish.has(a.dish.id)) porDish.set(a.dish.id, []);
         porDish.get(a.dish.id)!.push(a);
       }
@@ -138,8 +133,8 @@ function auditarRegla(
           detalles.push(`"${lista[0].dish.nombre}" se repite esta semana (${lista.map((a) => fmtCorta(a.fecha)).join(", ")})`);
         }
       }
-      for (const a of semanaSinDuplicadosDelDia) {
-        const prev = semanaAnterior.find((h) => h.dish.id === a.dish.id);
+      for (const a of semanaSinAcomp) {
+        const prev = semanaAnterior.find((h) => !esAcompanamiento(h.dish.tags) && h.dish.id === a.dish.id);
         if (prev) detalles.push(`"${a.dish.nombre}" repite con la semana anterior (${fmtCorta(prev.fecha)} y ${fmtCorta(a.fecha)})`);
       }
       break;

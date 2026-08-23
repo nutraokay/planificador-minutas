@@ -94,14 +94,11 @@ export function violacionesDuras(
       }
 
       case "no_repetir_semana_siguiente": {
-        // El acompañamiento compartido del día aparece "dos veces" el mismo
-        // día (Opción 1 y 2) a propósito — eso no cuenta como repetición.
-        const repetido = historial.find(
-          (h) =>
-            mismaOSemanaAnterior(h, ctx.semanaIndice) &&
-            h.dish.id === dish.id &&
-            !(h.fecha === ctx.fecha && esAcompanamiento(dish.tags)),
-        );
+        // Los acompañamientos no se controlan con esta regla (repetir en la
+        // semana o la semana anterior) — para ellos manda solo "distancia
+        // mínima entre acompañamientos" (no repetir el día siguiente/anterior).
+        if (esAcompanamiento(dish.tags)) break;
+        const repetido = historial.find((h) => mismaOSemanaAnterior(h, ctx.semanaIndice) && h.dish.id === dish.id);
         if (repetido) {
           violaciones.push({
             tipo: regla.tipo,
