@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 import type { DishInput, FrecuenciaEspecial } from "../types/database";
-import { NOMBRES_DIA } from "./dateUtils";
+import { NOMBRES_DIA_CORTO, parseFecha } from "./dateUtils";
 import { normalizar } from "./text";
 
 export interface HojaImportada {
@@ -288,23 +288,57 @@ export function parseLayoutPorSecciones(
   };
 }
 
-export interface FilaExportMinuta {
+export interface DiaExportMinuta {
   fecha: string;
   diaSemana: number;
   opcion1: string;
   opcion2: string;
 }
 
-export function exportarMinutaExcel(mesLabel: string, filas: FilaExportMinuta[]) {
-  const data = filas.map((f) => ({
-    Fecha: f.fecha,
-    Día: NOMBRES_DIA[f.diaSemana] ?? "",
-    "Opción 1": f.opcion1,
-    "Opción 2": f.opcion2,
-  }));
-  const hoja = XLSX.utils.json_to_sheet(data);
-  hoja["!cols"] = [{ wch: 12 }, { wch: 12 }, { wch: 32 }, { wch: 32 }];
+export interface SemanaExportMinuta {
+  indice: number;
+  dias: DiaExportMinuta[];
+}
+
+function fmtCorta(fechaISO: string): string {
+  const d = parseFecha(fechaISO);
+  return `${String(d.getUTCDate()).padStart(2, "0")}/${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Arma el libro Excel de la minuta en formato calendario: una cuadrícula
+ * lunes-viernes por semana (encabezado con el día + fecha, una fila para
+ * Opción 1 y otra para Opción 2), en vez de un listado plano de filas.
+ * Separado de `exportarMinutaExcel` para poder probarlo sin depender de la
+ * descarga del navegador. */
+export function construirLibroMinutaCalendario(mesLabel: string, semanas: SemanaExportMinuta[]): XLSX.WorkBook {
+  const NUM_COLUMNAS = 5;
+  const aoa: (string | null)[][] = [];
+  const merges: XLSX.Range[] = [];
+
+  aoa.push([mesLabel, null, null, null, null]);
+  merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: NUM_COLUMNAS - 1 } });
+
+  for (const semana of semanas) {
+    aoa.push([]); // separador en blanco entre semanas
+
+    const filaTitulo = aoa.length;
+    aoa.push([`Semana ${semana.indice}`, null, null, null, null]);
+    merges.push({ s: { r: filaTitulo, c: 0 }, e: { r: filaTitulo, c: NUM_COLUMNAS - 1 } });
+
+    aoa.push(semana.dias.map((d) => `${NOMBRES_DIA_CORTO[d.diaSemana] ?? ""} ${fmtCorta(d.fecha)}`));
+    aoa.push(semana.dias.map((d) => d.opcion1 || "—"));
+    aoa.push(semana.dias.map((d) => d.opcion2 || "—"));
+  }
+
+  const hoja = XLSX.utils.aoa_to_sheet(aoa);
+  hoja["!merges"] = merges;
+  hoja["!cols"] = Array.from({ length: NUM_COLUMNAS }, () => ({ wch: 30 }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, hoja, "Minuta");
+  return wb;
+}
+
+export function exportarMinutaExcel(mesLabel: string, semanas: SemanaExportMinuta[]) {
+  const wb = construirLibroMinutaCalendario(mesLabel, semanas);
   XLSX.writeFile(wb, `minuta-${mesLabel.toLowerCase().replace(/\s+/g, "-")}.xlsx`);
 }

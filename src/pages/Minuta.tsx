@@ -71,8 +71,9 @@ export function Minuta() {
   }
 
   function handleExportar() {
-    const filas = semanas.flatMap((semana) =>
-      semana.dias.map((dia) => {
+    const semanasExport = semanas.map((semana) => ({
+      indice: semana.indice,
+      dias: semana.dias.map((dia) => {
         const fecha = formatFecha(dia);
         const s1 = slots.find((s) => s.fecha === fecha && s.slot === 1);
         const s2 = slots.find((s) => s.fecha === fecha && s.slot === 2);
@@ -83,8 +84,8 @@ export function Minuta() {
           opcion2: nombreCombinado(s2),
         };
       }),
-    );
-    exportarMinutaExcel(mesLabel(anio, mes), filas);
+    }));
+    exportarMinutaExcel(mesLabel(anio, mes), semanasExport);
   }
 
   if (cargando) return <PantallaCargando />;
