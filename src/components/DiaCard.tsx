@@ -1,5 +1,6 @@
 import type { DailySlot, Dish } from "../types/database";
 import { NOMBRES_DIA_CORTO } from "../lib/dateUtils";
+import { esAcompanamiento, necesitaAcompanamiento } from "../lib/text";
 
 interface Props {
   fecha: string;
@@ -12,6 +13,7 @@ interface Props {
   advertencias: Record<number, string[]>;
   onSetPlatosDelDia: (cantidad: 1 | 2) => void;
   onSetSlotDish: (slot: 1 | 2, dishId: string | null) => void;
+  onSetAcompanamientoDia: (acompanamientoId: string | null) => void;
   onLimpiarManual: (slot: 1 | 2) => void;
 }
 
@@ -31,11 +33,18 @@ export function DiaCard({
   advertencias,
   onSetPlatosDelDia,
   onSetSlotDish,
+  onSetAcompanamientoDia,
   onLimpiarManual,
 }: Props) {
   const platosDelDia = slot1?.platos_del_dia ?? (esViernes ? 1 : 2);
   const dishesOrdenados = [...dishes].sort((a, b) => a.nombre.localeCompare(b.nombre));
   const poolViernes = dishesOrdenados.filter((d) => d.tags.some((t) => t.toLowerCase() === "plato_viernes"));
+  const poolAcompanamiento = dishesOrdenados.filter((d) => esAcompanamiento(d.tags));
+
+  const dish1 = slot1?.dish_id ? dishesById.get(slot1.dish_id) : undefined;
+  const dish2 = slot2?.dish_id ? dishesById.get(slot2.dish_id) : undefined;
+  const acompanamientoIdDelDia = slot1?.acompanamiento_id ?? slot2?.acompanamiento_id ?? null;
+  const acompanamientoDia = acompanamientoIdDelDia ? dishesById.get(acompanamientoIdDelDia) : undefined;
 
   return (
     <div className="flex min-w-[220px] flex-1 flex-col rounded-xl border border-slate-200 bg-white p-3">
@@ -67,8 +76,8 @@ export function DiaCard({
           etiqueta="Opción 1"
           dailySlot={slot1}
           opciones={esViernes ? poolViernes : dishesOrdenados}
-          dishesById={dishesById}
           advertencias={advertencias[1] ?? []}
+          acompanamiento={!esViernes && dish1 && necesitaAcompanamiento(dish1.tags) ? acompanamientoDia : undefined}
           onSet={(id) => onSetSlotDish(1, id)}
           onLimpiarManual={() => onLimpiarManual(1)}
         />
@@ -77,11 +86,31 @@ export function DiaCard({
             etiqueta="Opción 2"
             dailySlot={slot2}
             opciones={dishesOrdenados}
-            dishesById={dishesById}
             advertencias={advertencias[2] ?? []}
+            acompanamiento={dish2 && necesitaAcompanamiento(dish2.tags) ? acompanamientoDia : undefined}
             onSet={(id) => onSetSlotDish(2, id)}
             onLimpiarManual={() => onLimpiarManual(2)}
           />
+        )}
+
+        {!esViernes && (
+          <div>
+            <span className="text-[11px] font-medium text-slate-400">Acompañamiento del día</span>
+            <select
+              value={acompanamientoIdDelDia ?? ""}
+              onChange={(e) => onSetAcompanamientoDia(e.target.value || null)}
+              className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-fucsia-400"
+            >
+              <option value="">— sin acompañamiento —</option>
+              {poolAcompanamiento.map((d) => (
+                <option key={d.id} value={d.id} disabled={!d.activo}>
+                  {d.nombre}
+                  {!d.activo ? " (inactivo)" : ""}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[10px] text-slate-400">Se combina con Opción 1 y 2, salvo que sean plato completo o legumbre.</p>
+          </div>
         )}
       </div>
     </div>
@@ -93,14 +122,16 @@ function SlotSelector({
   dailySlot,
   opciones,
   advertencias,
+  acompanamiento,
   onSet,
   onLimpiarManual,
 }: {
   etiqueta: string;
   dailySlot: DailySlot | undefined;
   opciones: Dish[];
-  dishesById: Map<string, Dish>;
   advertencias: string[];
+  /** Si el plato de este slot necesita acompañamiento y hay uno fijado ese día, se muestra combinado. */
+  acompanamiento: Dish | undefined;
   onSet: (id: string | null) => void;
   onLimpiarManual: () => void;
 }) {
@@ -142,6 +173,7 @@ function SlotSelector({
           </option>
         ))}
       </select>
+      {acompanamiento && <p className="mt-1 text-[11px] text-verde-700">+ {acompanamiento.nombre}</p>}
       {advertencias.length > 0 && (
         <ul className="mt-1 space-y-0.5 text-[10px] text-fucsia-700">
           {advertencias.map((a, i) => (

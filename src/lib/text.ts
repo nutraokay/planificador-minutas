@@ -32,6 +32,12 @@ export function esPlatoDeFondo(tags: string[]): boolean {
   return !TAGS_NO_PLATO_DE_FONDO.some((t) => tieneTag(tags, t));
 }
 
+/** Un plato de fondo "se casa" con un acompañamiento del día (ej: Chapsui de
+ * vacuno + Arroz) salvo que sea autosuficiente: plato completo o legumbre. */
+export function necesitaAcompanamiento(tags: string[]): boolean {
+  return esPlatoDeFondo(tags) && !tieneTag(tags, "plato_completo") && !tieneTag(tags, "legumbre");
+}
+
 export function tagsProteina(tags: string[]): string[] {
   return tags.filter((t) => normalizar(t).startsWith("proteina:"));
 }

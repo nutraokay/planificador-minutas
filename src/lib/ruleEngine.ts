@@ -1,4 +1,5 @@
-import type { Dish, RandomizationRule, RuleType } from "../types/database";
+import type { DailySlot, Dish, RandomizationRule, RuleType } from "../types/database";
+import { diaSemanaISO } from "./dateUtils";
 import { esAcompanamiento, normalizar, paridadEstable, tagsProteina, tieneTag } from "./text";
 
 export interface SlotCtx {
@@ -178,6 +179,36 @@ export function violaPreferenciaDiaSemana(dish: Dish, ctx: SlotCtx, historial: A
     if (h.diaSemana !== ctx.diaSemana) return false;
     return h.dish.id === dish.id || (!!h.dish.familia && !!dish.familia && h.dish.familia === dish.familia);
   });
+}
+
+/**
+ * Convierte filas de daily_slots guardadas en entradas de historial para el
+ * motor de reglas. Cada fila puede aportar hasta 2 entradas: el plato de
+ * fondo (dish_id) y, si tiene, el acompañamiento del día (acompanamiento_id)
+ * — así las reglas de repetición/distancia ven ambos por separado aunque
+ * vivan en la misma fila física.
+ */
+export function expandirSlotsAHistorial(
+  slots: DailySlot[],
+  dishesById: Map<string, Dish>,
+  semanaIndicePorFecha: Map<string, number>,
+): Asignacion[] {
+  const out: Asignacion[] = [];
+  for (const s of slots) {
+    const semanaIndice = semanaIndicePorFecha.get(s.fecha);
+    if (semanaIndice === undefined) continue;
+    const diaSemana = diaSemanaISO(new Date(`${s.fecha}T12:00:00Z`));
+
+    if (s.dish_id) {
+      const dish = dishesById.get(s.dish_id);
+      if (dish) out.push({ fecha: s.fecha, diaSemana, semanaIndice, slot: s.slot, dish, esManual: s.es_manual });
+    }
+    if (s.acompanamiento_id) {
+      const acomp = dishesById.get(s.acompanamiento_id);
+      if (acomp) out.push({ fecha: s.fecha, diaSemana, semanaIndice, slot: s.slot, dish: acomp, esManual: s.es_manual });
+    }
+  }
+  return out;
 }
 
 /** Reglas activas para una semana dada, descontando excepciones puntuales. */

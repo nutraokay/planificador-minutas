@@ -65,6 +65,12 @@ export interface DailySlot {
   fecha: string; // date ISO
   slot: 1 | 2;
   dish_id: string | null;
+  /** Acompañamiento del día para este slot — mismo valor en slot 1 y 2 cuando
+   * ambos lo necesitan, para que compartan el mismo acompañamiento (ej:
+   * "Chapsui de vacuno con arroz" y "Croquetas de pescado con arroz").
+   * null cuando el plato de este slot es autosuficiente (plato completo o
+   * legumbre) o es viernes. */
+  acompanamiento_id: string | null;
   es_manual: boolean;
   platos_del_dia: 1 | 2;
   conflicto: boolean;

@@ -8,8 +8,9 @@ import { VerificationPanel } from "../components/VerificationPanel";
 import { diaSemanaISO, formatFecha, getSemanasHabilesDelMes, mesLabel, sumarMes } from "../lib/dateUtils";
 import { exportarMinutaExcel } from "../lib/excel";
 import { verificarMinuta } from "../lib/verification";
-import { reglasVigentes, violacionesDuras, type Asignacion } from "../lib/ruleEngine";
-import type { RuleException } from "../types/database";
+import { expandirSlotsAHistorial, reglasVigentes, violacionesDuras } from "../lib/ruleEngine";
+import { necesitaAcompanamiento } from "../lib/text";
+import type { Dish, RuleException } from "../types/database";
 
 export function Minuta() {
   const hoy = new Date();
@@ -26,6 +27,7 @@ export function Minuta() {
     aleatorizando,
     setPlatosDelDia,
     setSlotDish,
+    setAcompanamientoDia,
     limpiarManual,
     aleatorizar,
   } = useWeeklyPlan(anio, mes);
@@ -60,6 +62,14 @@ export function Minuta() {
     await aleatorizar(dishes, rules, exceptions);
   }
 
+  function nombreCombinado(s: (typeof slots)[number] | undefined): string {
+    if (!s?.dish_id) return "";
+    const dish = dishesById.get(s.dish_id);
+    if (!dish) return "";
+    const acomp = s.acompanamiento_id && necesitaAcompanamiento(dish.tags) ? dishesById.get(s.acompanamiento_id) : undefined;
+    return acomp ? `${dish.nombre} con ${acomp.nombre}` : dish.nombre;
+  }
+
   function handleExportar() {
     const filas = semanas.flatMap((semana) =>
       semana.dias.map((dia) => {
@@ -69,8 +79,8 @@ export function Minuta() {
         return {
           fecha,
           diaSemana: diaSemanaISO(dia),
-          opcion1: s1?.dish_id ? dishesById.get(s1.dish_id)?.nombre ?? "" : "",
-          opcion2: s2?.dish_id ? dishesById.get(s2.dish_id)?.nombre ?? "" : "",
+          opcion1: nombreCombinado(s1),
+          opcion2: nombreCombinado(s2),
         };
       }),
     );
@@ -154,7 +164,12 @@ export function Minuta() {
                       2: advertenciasPorSlot.get(`${fecha}#2`) ?? [],
                     }}
                     onSetPlatosDelDia={(cantidad) => setPlatosDelDia(fecha, cantidad)}
-                    onSetSlotDish={(slot, dishId) => setSlotDish(fecha, slot, dishId)}
+                    onSetSlotDish={(slot, dishId) => {
+                      const nuevoDish = dishId ? dishesById.get(dishId) : null;
+                      const yaNoNecesitaAcomp = !!dishId && (!nuevoDish || !necesitaAcompanamiento(nuevoDish.tags));
+                      setSlotDish(fecha, slot, dishId, yaNoNecesitaAcomp);
+                    }}
+                    onSetAcompanamientoDia={(acompId) => setAcompanamientoDia(fecha, acompId)}
                     onLimpiarManual={(slot) => limpiarManual(fecha, slot)}
                   />
                 );
@@ -199,38 +214,29 @@ function calcularAdvertencias(
     }
   }
 
-  const historialCompleto: Asignacion[] = [];
-  for (const s of slots) {
-    if (!s.dish_id) continue;
-    const dish = dishesById.get(s.dish_id);
-    const semanaIndice = semanaIndicePorFecha.get(s.fecha);
-    if (!dish || semanaIndice === undefined) continue;
-    historialCompleto.push({
-      fecha: s.fecha,
-      diaSemana: diaSemanaISO(new Date(`${s.fecha}T12:00:00Z`)),
-      semanaIndice,
-      slot: s.slot,
-      dish,
-      esManual: s.es_manual,
-    });
-  }
+  const historialCompleto = expandirSlotsAHistorial(slots, dishesById, semanaIndicePorFecha);
 
   const resultado = new Map<string, string[]>();
   for (const s of slots) {
-    if (!s.dish_id) continue;
-    const dish = dishesById.get(s.dish_id);
     const semanaIndice = semanaIndicePorFecha.get(s.fecha);
     const lunesISO = lunesPorFecha.get(s.fecha);
-    if (!dish || semanaIndice === undefined || !lunesISO) continue;
+    if (semanaIndice === undefined || !lunesISO) continue;
+    const reglasHoy = reglasVigentes(rules, excMap, lunesISO);
+    const ctx = { fecha: s.fecha, diaSemana: diaSemanaISO(new Date(`${s.fecha}T12:00:00Z`)), semanaIndice };
+
+    const platos: Dish[] = [];
+    if (s.dish_id) {
+      const d = dishesById.get(s.dish_id);
+      if (d) platos.push(d);
+    }
+    if (s.acompanamiento_id) {
+      const a = dishesById.get(s.acompanamiento_id);
+      if (a) platos.push(a);
+    }
+    if (platos.length === 0) continue;
 
     const historialSinEste = historialCompleto.filter((h) => !(h.fecha === s.fecha && h.slot === s.slot));
-    const reglasHoy = reglasVigentes(rules, excMap, lunesISO);
-    const violaciones = violacionesDuras(
-      dish,
-      { fecha: s.fecha, diaSemana: diaSemanaISO(new Date(`${s.fecha}T12:00:00Z`)), semanaIndice },
-      historialSinEste,
-      reglasHoy,
-    );
+    const violaciones = platos.flatMap((d) => violacionesDuras(d, ctx, historialSinEste, reglasHoy));
     if (violaciones.length > 0) resultado.set(`${s.fecha}#${s.slot}`, violaciones.map((v) => v.detalle));
   }
 

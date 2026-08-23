@@ -1,8 +1,8 @@
 import type { DailySlot, Dish, RandomizationRule, RuleException, RuleType } from "../types/database";
-import { diaSemanaISO, formatFecha, getSemanasHabilesDelMes, NOMBRES_DIA_CORTO } from "./dateUtils";
+import { formatFecha, getSemanasHabilesDelMes, NOMBRES_DIA_CORTO } from "./dateUtils";
 import { RULE_DEFS } from "./rules";
 import { esAcompanamiento, normalizar, paridadEstable, tagsProteina, tieneTag } from "./text";
-import type { Asignacion } from "./ruleEngine";
+import { expandirSlotsAHistorial, type Asignacion } from "./ruleEngine";
 
 export type EstadoRegla = "cumple" | "incumple" | "excepcionada";
 
@@ -64,24 +64,15 @@ export function verificarMinuta(input: VerificarInput): ResultadoSemana[] {
     excMap.get(ex.rule_id)!.add(ex.semana_inicio);
   }
 
-  const asignacionesPorFechaSlot = new Map<string, DailySlot>();
-  for (const s of input.slots) asignacionesPorFechaSlot.set(`${s.fecha}#${s.slot}`, s);
+  const semanaIndicePorFecha = new Map<string, number>();
+  for (const semana of semanas) for (const dia of semana.dias) semanaIndicePorFecha.set(formatFecha(dia), semana.indice);
 
-  // Todas las asignaciones (con plato) del mes, agrupadas por semana, en orden.
+  // Todas las asignaciones (plato de fondo + acompañamiento del día) del
+  // mes, agrupadas por semana, en orden. expandirSlotsAHistorial separa
+  // ambos aunque vivan en la misma fila física de daily_slots.
+  const todasLasAsignaciones = expandirSlotsAHistorial(input.slots, dishesById, semanaIndicePorFecha);
   const asignacionesPorSemana: Asignacion[][] = semanas.map((semana) =>
-    semana.dias.flatMap((dia) => {
-      const fecha = formatFecha(dia);
-      const diaSemana = diaSemanaISO(dia);
-      const out: Asignacion[] = [];
-      for (const slot of [1, 2] as const) {
-        const s = asignacionesPorFechaSlot.get(`${fecha}#${slot}`);
-        if (!s || !s.dish_id) continue;
-        const dish = dishesById.get(s.dish_id);
-        if (!dish) continue;
-        out.push({ fecha, diaSemana, semanaIndice: semana.indice, slot, dish, esManual: s.es_manual });
-      }
-      return out;
-    }),
+    todasLasAsignaciones.filter((a) => a.semanaIndice === semana.indice),
   );
 
   const resultados: ResultadoSemana[] = semanas.map((semana, i) => {

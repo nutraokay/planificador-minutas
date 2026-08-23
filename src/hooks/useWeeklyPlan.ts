@@ -121,14 +121,29 @@ export function useWeeklyPlan(anio: number, mes: number) {
     await cargar();
   }
 
-  /** Edición manual de un slot: fija el plato y lo marca como es_manual. `dishId` null limpia el plato. */
-  async function setSlotDish(fecha: string, slot: 1 | 2, dishId: string | null) {
+  /** Edición manual de un slot: fija el plato y lo marca como es_manual.
+   * `dishId` null limpia el plato. `limpiarAcompanamiento` en true borra el
+   * acompañamiento que pudiera haber quedado de antes (ej: al cambiar a un
+   * plato completo/legumbre que ya no necesita uno). */
+  async function setSlotDish(fecha: string, slot: 1 | 2, dishId: string | null, limpiarAcompanamiento = false) {
     const s = slots.find((s) => s.fecha === fecha && s.slot === slot);
     if (!s) return;
-    await supabase
-      .from("daily_slots")
-      .update({ dish_id: dishId, es_manual: true, conflicto: false, conflicto_detalle: null })
-      .eq("id", s.id);
+    const cambios: Partial<DailySlot> = { dish_id: dishId, es_manual: true, conflicto: false, conflicto_detalle: null };
+    if (limpiarAcompanamiento) cambios.acompanamiento_id = null;
+    await supabase.from("daily_slots").update(cambios).eq("id", s.id);
+    await cargar();
+  }
+
+  /** Fija el acompañamiento compartido del día (se aplica a Opción 1 y 2 por
+   * igual, y marca ambos slots como manuales — el usuario manda). */
+  async function setAcompanamientoDia(fecha: string, acompanamientoId: string | null) {
+    const delDia = slots.filter((s) => s.fecha === fecha);
+    if (delDia.length === 0) return;
+    await Promise.all(
+      delDia.map((s) =>
+        supabase.from("daily_slots").update({ acompanamiento_id: acompanamientoId, es_manual: true }).eq("id", s.id),
+      ),
+    );
     await cargar();
   }
 
@@ -154,6 +169,7 @@ export function useWeeklyPlan(anio: number, mes: number) {
           fecha: g.fecha,
           slot: g.slot,
           dish_id: g.dish_id,
+          acompanamiento_id: g.acompanamiento_id,
           es_manual: g.es_manual,
           platos_del_dia: g.platos_del_dia,
           conflicto: g.conflicto,
@@ -169,5 +185,17 @@ export function useWeeklyPlan(anio: number, mes: number) {
     }
   }
 
-  return { plan, slots, cargando, error, aleatorizando, recargar: cargar, setPlatosDelDia, setSlotDish, limpiarManual, aleatorizar };
+  return {
+    plan,
+    slots,
+    cargando,
+    error,
+    aleatorizando,
+    recargar: cargar,
+    setPlatosDelDia,
+    setSlotDish,
+    setAcompanamientoDia,
+    limpiarManual,
+    aleatorizar,
+  };
 }

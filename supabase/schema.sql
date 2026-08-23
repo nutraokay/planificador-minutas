@@ -73,6 +73,7 @@ create table if not exists public.daily_slots (
   fecha date not null,
   slot int not null check (slot in (1, 2)),
   dish_id uuid references public.dishes(id) on delete set null,
+  acompanamiento_id uuid references public.dishes(id) on delete set null,
   es_manual boolean not null default false,
   platos_del_dia int not null default 1 check (platos_del_dia in (1, 2)),
   conflicto boolean not null default false,
