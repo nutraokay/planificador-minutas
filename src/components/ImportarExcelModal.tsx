@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { CAMPOS_DISH, leerHojaExcel, mapearFilasADishes, type CampoDish } from "../lib/excel";
+import {
+  CAMPOS_DISH,
+  detectarLayoutPorSecciones,
+  leerHojaExcel,
+  mapearFilasADishes,
+  parseLayoutPorSecciones,
+  type CampoDish,
+  type DeteccionSecciones,
+} from "../lib/excel";
 import type { DishInput } from "../types/database";
 
 interface Props {
@@ -11,6 +19,8 @@ export function ImportarExcelModal({ onCerrar, onImportar }: Props) {
   const [encabezados, setEncabezados] = useState<string[]>([]);
   const [filas, setFilas] = useState<Record<string, unknown>[]>([]);
   const [mapeo, setMapeo] = useState<Partial<Record<CampoDish, string>>>({});
+  const [deteccion, setDeteccion] = useState<DeteccionSecciones | null>(null);
+  const [usarManual, setUsarManual] = useState(false);
   const [nombreArchivo, setNombreArchivo] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [importando, setImportando] = useState(false);
@@ -20,12 +30,16 @@ export function ImportarExcelModal({ onCerrar, onImportar }: Props) {
     if (!file) return;
     setError(null);
     setNombreArchivo(file.name);
+    setUsarManual(false);
     try {
       const { encabezados, filas } = await leerHojaExcel(file);
       setEncabezados(encabezados);
       setFilas(filas);
 
-      // Auto-mapeo por nombre de columna aproximado.
+      const deteccionLayout = detectarLayoutPorSecciones(encabezados);
+      setDeteccion(deteccionLayout);
+
+      // Auto-mapeo por nombre de columna aproximado (fallback si no se detecta el layout por secciones).
       const auto: Partial<Record<CampoDish, string>> = {};
       for (const campo of CAMPOS_DISH) {
         const encontrado = encabezados.find((h) => h.toLowerCase().includes(campo.campo.replace("_", " ").split(" ")[0]));
@@ -37,16 +51,23 @@ export function ImportarExcelModal({ onCerrar, onImportar }: Props) {
     }
   }
 
-  const previa = mapeo.nombre ? mapearFilasADishes(filas.slice(0, 5), mapeo) : [];
-  const totalValidas = mapeo.nombre ? mapearFilasADishes(filas, mapeo).length : 0;
+  const modoSecciones = deteccion?.detectado && !usarManual;
+  const resultadoSecciones = modoSecciones ? parseLayoutPorSecciones(filas, deteccion!) : null;
+
+  const previaManual = mapeo.nombre ? mapearFilasADishes(filas.slice(0, 5), mapeo) : [];
+  const totalManual = mapeo.nombre ? mapearFilasADishes(filas, mapeo).length : 0;
+
+  const dishesAImportar = modoSecciones ? resultadoSecciones!.dishes : mapearFilasADishes(filas, mapeo);
+  const totalAImportar = modoSecciones ? resultadoSecciones!.dishes.length : totalManual;
+  const previa = modoSecciones ? resultadoSecciones!.dishes.slice(0, 8) : previaManual;
+  const puedeImportar = modoSecciones ? totalAImportar > 0 : Boolean(mapeo.nombre) && totalManual > 0;
 
   async function confirmar() {
-    if (!mapeo.nombre) return;
+    if (!puedeImportar) return;
     setImportando(true);
     setError(null);
     try {
-      const dishes = mapearFilasADishes(filas, mapeo);
-      await onImportar(dishes);
+      await onImportar(dishesAImportar);
       onCerrar();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al importar.");
@@ -75,8 +96,41 @@ export function ImportarExcelModal({ onCerrar, onImportar }: Props) {
           {nombreArchivo && <p className="mt-1 text-xs text-slate-400">{nombreArchivo} — {filas.length} filas detectadas</p>}
         </div>
 
-        {encabezados.length > 0 && (
+        {modoSecciones && resultadoSecciones && (
           <div className="mt-5 space-y-3">
+            <div className="rounded-lg bg-verde-50 px-3 py-2 text-xs text-verde-800">
+              Detecté un catálogo organizado por categorías (Proteína / Acompañamiento / Platos completos / Platos de
+              viernes) — no hace falta mapear columnas, ya se etiquetó automáticamente.
+              {resultadoSecciones.resumen.combinados > 0 && (
+                <>
+                  {" "}
+                  {resultadoSecciones.resumen.combinados} plato(s) aparecían en Proteína y en Viernes a la vez — se
+                  combinaron en un solo plato con ambos usos.
+                </>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 sm:grid-cols-4">
+              <Stat etiqueta="Proteínas" valor={resultadoSecciones.resumen.proteinas} />
+              <Stat etiqueta="Acompañamientos" valor={resultadoSecciones.resumen.acompanamientos} />
+              <Stat etiqueta="Platos completos" valor={resultadoSecciones.resumen.platosCompletos} />
+              <Stat etiqueta="Platos de viernes" valor={resultadoSecciones.resumen.platosViernes} />
+            </div>
+            <button
+              onClick={() => setUsarManual(true)}
+              className="text-xs font-medium text-slate-400 hover:text-fucsia-600 hover:underline"
+            >
+              ¿No es correcto? Mapear columnas a mano en su lugar
+            </button>
+          </div>
+        )}
+
+        {!modoSecciones && encabezados.length > 0 && (
+          <div className="mt-5 space-y-3">
+            {deteccion && !deteccion.detectado && (
+              <p className="text-xs text-slate-400">
+                No detecté un catálogo por categorías en este archivo — mapea las columnas manualmente:
+              </p>
+            )}
             <p className="text-xs font-medium text-slate-500">Mapeo de columnas</p>
             {CAMPOS_DISH.map((campo) => (
               <div key={campo.campo} className="flex items-center gap-3">
@@ -103,7 +157,7 @@ export function ImportarExcelModal({ onCerrar, onImportar }: Props) {
 
         {previa.length > 0 && (
           <div className="mt-5">
-            <p className="text-xs font-medium text-slate-500">Previsualización ({totalValidas} platos válidos)</p>
+            <p className="text-xs font-medium text-slate-500">Previsualización ({totalAImportar} platos válidos)</p>
             <div className="mt-2 overflow-x-auto rounded-lg border border-slate-200">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500">
@@ -141,13 +195,22 @@ export function ImportarExcelModal({ onCerrar, onImportar }: Props) {
           </button>
           <button
             onClick={confirmar}
-            disabled={!mapeo.nombre || totalValidas === 0 || importando}
+            disabled={!puedeImportar || importando}
             className="rounded-lg bg-fucsia-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-fucsia-700 disabled:opacity-50"
           >
-            {importando ? "Importando…" : `Importar ${totalValidas} platos`}
+            {importando ? "Importando…" : `Importar ${totalAImportar} platos`}
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function Stat({ etiqueta, valor }: { etiqueta: string; valor: number }) {
+  return (
+    <div className="rounded-lg border border-slate-200 px-2.5 py-2">
+      <div className="text-base font-semibold text-slate-800">{valor}</div>
+      <div className="text-[11px] text-slate-500">{etiqueta}</div>
     </div>
   );
 }

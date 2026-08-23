@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import type { DishInput, FrecuenciaEspecial } from "../types/database";
 import { NOMBRES_DIA } from "./dateUtils";
+import { normalizar } from "./text";
 
 export interface HojaImportada {
   encabezados: string[];
@@ -78,6 +79,173 @@ export function mapearFilasADishes(filas: Record<string, unknown>[], mapeo: Part
     });
   }
   return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Importación "por secciones": algunos catálogos reales no vienen como una
+// tabla plana (un plato por fila) sino como columnas paralelas, una por
+// categoría — típicamente Proteína | Acompañamiento | Platos completos
+// (sin acompañamiento) | Platos de viernes, cada una con su propio largo.
+// Se detecta automáticamente por el nombre de los encabezados y se arma el
+// catálogo con los tags correctos, sin pedir mapeo manual.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface DeteccionSecciones {
+  detectado: boolean;
+  columnaProteina?: string;
+  columnaAcompanamiento?: string;
+  columnaPlatosCompletos?: string;
+  columnaPlatosViernes?: string;
+}
+
+export function detectarLayoutPorSecciones(encabezados: string[]): DeteccionSecciones {
+  const buscar = (pred: (h: string) => boolean) => encabezados.find((h) => pred(normalizar(h)));
+  const columnaProteina = buscar((h) => h.includes("proteina"));
+  const columnaAcompanamiento = buscar((h) => h.includes("acompan"));
+  const columnaPlatosCompletos = buscar((h) => h.includes("plato") && h.includes("completo"));
+  const columnaPlatosViernes = buscar((h) => h.includes("viernes"));
+  return {
+    // con proteína + acompañamiento ya alcanza para reconocer este formato
+    detectado: Boolean(columnaProteina && columnaAcompanamiento),
+    columnaProteina,
+    columnaAcompanamiento,
+    columnaPlatosCompletos,
+    columnaPlatosViernes,
+  };
+}
+
+const PISTAS_PROTEINA: { tag: string; palabras: string[] }[] = [
+  { tag: "proteina:pollo", palabras: ["pollo"] },
+  { tag: "proteina:pescado", palabras: ["pescado", "salmon", "atun", "merluza", "reineta", "jurel"] },
+  { tag: "proteina:cerdo", palabras: ["cerdo", "chancho"] },
+  {
+    tag: "proteina:vacuno",
+    palabras: ["vacuno", "carne", "lomo", "posta", "malaya", "strogonoff", "estrogonoff", "chapsui de vacuno"],
+  },
+];
+
+/** Intenta adivinar el tag proteina:X del nombre del plato. Si no está claro
+ * (ej. "Escalopa kyser"), devuelve null — mejor sin tag que un tag erróneo;
+ * se puede completar a mano después en el catálogo. */
+function inferirTagProteina(nombre: string): string | null {
+  const n = normalizar(nombre);
+  for (const { tag, palabras } of PISTAS_PROTEINA) {
+    if (palabras.some((p) => n.includes(p))) return tag;
+  }
+  return null;
+}
+
+const FAMILIAS_ACOMPANAMIENTO: { familia: string; palabras: string[] }[] = [
+  { familia: "arroz", palabras: ["arroz"] },
+  { familia: "pure", palabras: ["pure"] },
+  { familia: "papas", palabras: ["papa"] },
+  { familia: "fideos", palabras: ["fideo", "tallarin", "spaghetti", "espagueti"] },
+  { familia: "ensalada", palabras: ["ensalada"] },
+];
+
+function inferirFamiliaAcompanamiento(nombre: string): string | null {
+  const n = normalizar(nombre);
+  for (const { familia, palabras } of FAMILIAS_ACOMPANAMIENTO) {
+    if (palabras.some((p) => n.includes(p))) return familia;
+  }
+  return null;
+}
+
+/** Valores no vacíos de una columna, sin duplicados (por texto normalizado), en orden de aparición. */
+function valoresColumna(filas: Record<string, unknown>[], columna: string): string[] {
+  const vistos = new Set<string>();
+  const out: string[] = [];
+  for (const fila of filas) {
+    const v = String(fila[columna] ?? "").trim();
+    if (!v || vistos.has(normalizar(v))) continue;
+    vistos.add(normalizar(v));
+    out.push(v);
+  }
+  return out;
+}
+
+export interface ResultadoImportacionSecciones {
+  dishes: DishInput[];
+  resumen: {
+    proteinas: number;
+    acompanamientos: number;
+    platosCompletos: number;
+    platosViernes: number;
+    /** platos que aparecían en Proteína Y en Viernes a la vez — se combinan en un solo plato con ambos usos. */
+    combinados: number;
+  };
+}
+
+export function parseLayoutPorSecciones(
+  filas: Record<string, unknown>[],
+  deteccion: DeteccionSecciones,
+): ResultadoImportacionSecciones {
+  const proteinas = deteccion.columnaProteina ? valoresColumna(filas, deteccion.columnaProteina) : [];
+  const acompanamientos = deteccion.columnaAcompanamiento ? valoresColumna(filas, deteccion.columnaAcompanamiento) : [];
+  const platosCompletos = deteccion.columnaPlatosCompletos ? valoresColumna(filas, deteccion.columnaPlatosCompletos) : [];
+  const platosViernes = deteccion.columnaPlatosViernes ? valoresColumna(filas, deteccion.columnaPlatosViernes) : [];
+
+  const viernesKeys = new Set(platosViernes.map(normalizar));
+  const proteinaKeys = new Set(proteinas.map(normalizar));
+  let combinados = 0;
+  const dishes: DishInput[] = [];
+
+  for (const nombre of proteinas) {
+    const tags: string[] = [];
+    const tagProteina = inferirTagProteina(nombre);
+    if (tagProteina) tags.push(tagProteina);
+    if (viernesKeys.has(normalizar(nombre))) {
+      tags.push("plato_viernes");
+      combinados += 1;
+    }
+    dishes.push({ nombre, tags, familia: null, dias_permitidos: null, frecuencia_especial: "ninguna", activo: true });
+  }
+
+  // Platos de viernes que NO estaban ya en la lista de proteínas (los combinados ya se agregaron arriba).
+  for (const nombre of platosViernes) {
+    if (proteinaKeys.has(normalizar(nombre))) continue;
+    dishes.push({
+      nombre,
+      tags: ["plato_viernes"],
+      familia: null,
+      dias_permitidos: null,
+      frecuencia_especial: "ninguna",
+      activo: true,
+    });
+  }
+
+  for (const nombre of acompanamientos) {
+    dishes.push({
+      nombre,
+      tags: ["acompañamiento"],
+      familia: inferirFamiliaAcompanamiento(nombre),
+      dias_permitidos: null,
+      frecuencia_especial: "ninguna",
+      activo: true,
+    });
+  }
+
+  for (const nombre of platosCompletos) {
+    dishes.push({
+      nombre,
+      tags: ["plato_completo"],
+      familia: null,
+      dias_permitidos: null,
+      frecuencia_especial: "ninguna",
+      activo: true,
+    });
+  }
+
+  return {
+    dishes,
+    resumen: {
+      proteinas: proteinas.length,
+      acompanamientos: acompanamientos.length,
+      platosCompletos: platosCompletos.length,
+      platosViernes: platosViernes.length,
+      combinados,
+    },
+  };
 }
 
 export interface FilaExportMinuta {

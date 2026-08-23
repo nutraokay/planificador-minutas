@@ -115,11 +115,13 @@ export function generarMinuta(input: GenerarMinutaInput): SlotGenerado[] {
         const ctx: SlotCtx = { fecha, diaSemana, semanaIndice: semana.indice };
         const reglasHoy = reglasVigentes(rules, excMap, lunesISO);
 
+        // El viernes elige solo del pool plato_viernes. El resto de la semana
+        // usa el catálogo completo — un plato marcado plato_viernes puede
+        // seguir sirviendo otros días si también cabe ahí (no es exclusivo
+        // del viernes, es un mínimo garantizado para ese día).
         let poolBase = dishesActivos;
         if (esViernes) {
           poolBase = poolBase.filter((d) => esPlatoViernes(d.tags));
-        } else {
-          poolBase = poolBase.filter((d) => !esPlatoViernes(d.tags));
         }
 
         let candidatos = poolBase.filter((d) => violacionesDuras(d, ctx, historial, reglasHoy).length === 0);
@@ -215,7 +217,7 @@ export function generarMinuta(input: GenerarMinutaInput): SlotGenerado[] {
           const diaSemana = diaSemanaISO(new Date(`${s.fecha}T12:00:00Z`));
           const esViernes = diaSemana === 5;
           let poolBase = dishesActivos.filter((d) => tieneTag(d.tags, tag));
-          poolBase = esViernes ? poolBase.filter((d) => esPlatoViernes(d.tags)) : poolBase.filter((d) => !esPlatoViernes(d.tags));
+          if (esViernes) poolBase = poolBase.filter((d) => esPlatoViernes(d.tags));
 
           const ctx: SlotCtx = { fecha: s.fecha, diaSemana, semanaIndice: semana.indice };
           const reglasHoy = reglasVigentes(rules, excMap, lunesISO).filter((r) => r.tipo !== "composicion_semanal_minima");
