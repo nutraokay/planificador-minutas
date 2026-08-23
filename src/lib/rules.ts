@@ -15,7 +15,8 @@ export type CampoParametro =
   | { nombre: string; tipo: "tag"; etiqueta: string; placeholder?: string }
   | { nombre: string; tipo: "texto"; etiqueta: string; placeholder?: string }
   | { nombre: string; tipo: "numero"; etiqueta: string; min?: number; max?: number }
-  | { nombre: string; tipo: "dias"; etiqueta: string };
+  | { nombre: string; tipo: "dias"; etiqueta: string }
+  | { nombre: string; tipo: "plato"; etiqueta: string };
 
 export const RULE_DEFS: Record<RuleType, RuleDef> = {
   no_repetir_semana_siguiente: {
@@ -103,12 +104,22 @@ export const RULE_DEFS: Record<RuleType, RuleDef> = {
       { nombre: "minimo", tipo: "numero", etiqueta: "Mínimo por semana", min: 1, max: 5 },
     ],
   },
+  plato_obligatorio_frecuencia: {
+    tipo: "plato_obligatorio_frecuencia",
+    etiqueta: "Plato obligatorio (semana por medio / una vez al mes)",
+    descripcion:
+      "Elige un plato marcado como \"semana por medio\" o \"una vez al mes\" en el catálogo — se asegura de que efectivamente aparezca en las semanas que le corresponden (o una vez en el mes), no solo que esté permitido.",
+    multiInstancia: true,
+    parametrosDefault: { dish_id: "" },
+    campos: [{ nombre: "dish_id", tipo: "plato", etiqueta: "Plato" }],
+  },
 };
 
 export const RULE_TYPES_ORDENADOS: RuleType[] = [
   "dias_permitidos",
   "restriccion_por_palabra",
   "composicion_semanal_minima",
+  "plato_obligatorio_frecuencia",
   "frecuencia_especial",
   "mismo_tipo_no_repite_dia_semana",
   "no_repetir_proteina_semana_siguiente",

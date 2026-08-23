@@ -8,7 +8,7 @@ import {
   type Asignacion,
   type SlotCtx,
 } from "./ruleEngine";
-import { esAcompanamiento, esPlatoDeFondo, esPlatoViernes, necesitaAcompanamiento, tieneTag } from "./text";
+import { esAcompanamiento, esPlatoDeFondo, esPlatoViernes, necesitaAcompanamiento, paridadEstable, tieneTag } from "./text";
 
 export interface SlotGenerado {
   fecha: string;
@@ -89,6 +89,63 @@ function elegirConRelajacion(
     conflicto: true,
     detalle: poolBase.length === 0 ? "No hay platos activos disponibles en el catálogo" : "No se encontró ningún plato válido ni relajando todas las reglas",
   };
+}
+
+/** Intenta colocar un plato específico (no un pool) en alguno de los índices
+ * candidatos de `salida`, respetando reglas duras (con relajación
+ * progresiva si hace falta, igual que en la generación normal). Usado por
+ * el post-pass de "plato obligatorio según su frecuencia". Devuelve true si
+ * logró colocarlo (o si ya estaba puesto). */
+function intentarColocarPlatoEspecifico(
+  dishObjetivo: Dish,
+  indicesCandidatos: number[],
+  salida: SlotGenerado[],
+  historial: Asignacion[],
+  rules: RandomizationRule[],
+  excMap: Map<string, Set<string>>,
+  semanaInfoPorFecha: Map<string, { indice: number; lunesISO: string }>,
+  etiquetaMotivo: string,
+): boolean {
+  if (indicesCandidatos.some((i) => salida[i].dish_id === dishObjetivo.id)) return true; // ya está puesto
+
+  for (const i of mezclar(indicesCandidatos)) {
+    const s = salida[i];
+    if (s.es_manual) continue;
+    const info = semanaInfoPorFecha.get(s.fecha);
+    if (!info) continue;
+
+    const diaSemana = diaSemanaISO(new Date(`${s.fecha}T12:00:00Z`));
+    const esViernes = diaSemana === 5;
+    if (esViernes && !esPlatoViernes(dishObjetivo.tags)) continue;
+
+    const ctx: SlotCtx = { fecha: s.fecha, diaSemana, semanaIndice: info.indice };
+    const reglasHoy = reglasVigentes(rules, excMap, info.lunesISO).filter(
+      (r) => r.tipo !== "composicion_semanal_minima" && r.tipo !== "plato_obligatorio_frecuencia",
+    );
+    const historialSinEsteSlot = historial.filter((h) => !(h.fecha === s.fecha && h.slot === s.slot));
+    const { candidatos, conflicto, detalle } = elegirConRelajacion([dishObjetivo], ctx, historialSinEsteSlot, reglasHoy);
+    if (candidatos.length === 0) continue;
+
+    s.dish_id = dishObjetivo.id;
+    s.conflicto = conflicto;
+    s.conflicto_detalle = conflicto ? `Recolocado para asegurar "${dishObjetivo.nombre}" (${etiquetaMotivo}) — ${detalle}` : null;
+
+    if (necesitaAcompanamiento(dishObjetivo.tags)) {
+      if (!s.acompanamiento_id) {
+        const otroDelDia = salida.find((o) => o.fecha === s.fecha && o !== s && o.acompanamiento_id);
+        if (otroDelDia) s.acompanamiento_id = otroDelDia.acompanamiento_id;
+      }
+    } else {
+      s.acompanamiento_id = null;
+    }
+
+    const hIdx = historial.findIndex((h) => h.fecha === s.fecha && h.slot === s.slot && h.dish.id !== s.acompanamiento_id);
+    if (hIdx >= 0) historial[hIdx] = { ...historial[hIdx], dish: dishObjetivo };
+    else historial.push({ fecha: s.fecha, diaSemana, semanaIndice: info.indice, slot: s.slot, dish: dishObjetivo, esManual: false });
+
+    return true;
+  }
+  return false;
 }
 
 export function generarMinuta(input: GenerarMinutaInput): SlotGenerado[] {
@@ -371,6 +428,71 @@ export function generarMinuta(input: GenerarMinutaInput): SlotGenerado[] {
         // Si tras intentar recolocar sigue sin cumplirse, no se fuerza más:
         // el panel de Verificación lo mostrará como incumplimiento real.
       }
+    }
+  }
+
+  // Post-pass: platos específicos marcados "semana por medio" o "una vez al
+  // mes" en el catálogo que además tienen una regla "plato obligatorio" —
+  // se asegura de que efectivamente aparezcan (no solo que estén
+  // permitidos). Corre después de composición semanal para no pisarle el
+  // cupo a legumbre/pescado/etc., que son obligatorias por tag.
+  const reglasPlatoObligatorio = rules.filter((r) => r.tipo === "plato_obligatorio_frecuencia" && r.activa);
+  if (reglasPlatoObligatorio.length > 0) {
+    const semanaInfoPorFecha = new Map<string, { indice: number; lunesISO: string }>();
+    for (const semana of semanas) {
+      const lunesISO = formatFecha(semana.lunes);
+      for (const dia of semana.dias) semanaInfoPorFecha.set(formatFecha(dia), { indice: semana.indice, lunesISO });
+    }
+
+    for (const regla of reglasPlatoObligatorio) {
+      const dishId = (regla.parametros as any).dish_id as string | undefined;
+      const dishObligatorio = dishId ? dishesById.get(dishId) : undefined;
+      if (!dishObligatorio) continue;
+
+      if (dishObligatorio.frecuencia_especial === "semana_por_medio") {
+        const paridad = paridadEstable(dishObligatorio.id);
+        for (const semana of semanas) {
+          const lunesISO = formatFecha(semana.lunes);
+          if (!reglasVigentes([regla], excMap, lunesISO).length) continue; // excepcionada esta semana
+
+          const semanaEsImpar = semana.indice % 2 === 1;
+          const leCorresponde = paridad === 0 ? semanaEsImpar : !semanaEsImpar;
+          if (!leCorresponde) continue; // esta semana no es la que le toca a este plato
+
+          const fechasSemana = new Set(semana.dias.map(formatFecha));
+          const indicesSemana = salida.reduce<number[]>((acc, s, i) => {
+            if (fechasSemana.has(s.fecha)) acc.push(i);
+            return acc;
+          }, []);
+
+          intentarColocarPlatoEspecifico(
+            dishObligatorio,
+            indicesSemana,
+            salida,
+            historial,
+            rules,
+            excMap,
+            semanaInfoPorFecha,
+            "semana por medio",
+          );
+          // Si no se pudo colocar, queda sin aparecer esta semana — el
+          // panel de Verificación lo mostrará como incumplimiento real.
+        }
+      } else if (dishObligatorio.frecuencia_especial === "una_vez_al_mes") {
+        const todosLosIndices = salida.map((_, i) => i);
+        intentarColocarPlatoEspecifico(
+          dishObligatorio,
+          todosLosIndices,
+          salida,
+          historial,
+          rules,
+          excMap,
+          semanaInfoPorFecha,
+          "una vez al mes",
+        );
+      }
+      // Si el plato está marcado "ninguna" frecuencia especial en el
+      // catálogo, esta regla no tiene nada que forzar — se ignora.
     }
   }
 

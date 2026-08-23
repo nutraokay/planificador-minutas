@@ -28,7 +28,8 @@ export type RuleType =
   | "dias_permitidos"
   | "restriccion_por_palabra"
   | "mismo_tipo_no_repite_dia_semana"
-  | "composicion_semanal_minima";
+  | "composicion_semanal_minima"
+  | "plato_obligatorio_frecuencia";
 
 export interface RandomizationRule {
   id: string;

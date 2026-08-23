@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useRules } from "../hooks/useRules";
 import { useDishes } from "../hooks/useDishes";
 import { RULE_DEFS, RULE_TYPES_ORDENADOS, tagsDisponibles } from "../lib/rules";
-import type { RandomizationRule } from "../types/database";
+import type { Dish, RandomizationRule } from "../types/database";
 import { PantallaCargando } from "../components/PantallaCargando";
 import { DiasPicker } from "../components/DiasPicker";
 import { ExcepcionModal } from "../components/ExcepcionModal";
@@ -53,6 +53,7 @@ export function Reglas() {
                     key={regla.id}
                     regla={regla}
                     tagsConocidos={tagsConocidos}
+                    dishes={dishes}
                     excepciones={exceptions.filter((e) => e.rule_id === regla.id)}
                     onActualizar={(cambios) => actualizarRegla(regla.id, cambios)}
                     onEliminar={def.multiInstancia ? () => eliminarRegla(regla.id) : undefined}
@@ -92,6 +93,7 @@ function mismosParametros(a: Record<string, unknown>, b: Record<string, unknown>
 function FilaRegla({
   regla,
   tagsConocidos,
+  dishes,
   excepciones,
   onActualizar,
   onEliminar,
@@ -100,6 +102,7 @@ function FilaRegla({
 }: {
   regla: RandomizationRule;
   tagsConocidos: string[];
+  dishes: Dish[];
   excepciones: { id: string; semana_inicio: string; motivo: string | null }[];
   onActualizar: (cambios: Partial<Pick<RandomizationRule, "activa" | "parametros">>) => void;
   onEliminar?: () => void;
@@ -109,6 +112,8 @@ function FilaRegla({
   const def = RULE_DEFS[regla.tipo];
   const [params, setParams] = useState(regla.parametros as Record<string, any>);
   const sucio = !mismosParametros(params, regla.parametros);
+
+  const platoSeleccionado = regla.tipo === "plato_obligatorio_frecuencia" ? dishes.find((d) => d.id === params.dish_id) : undefined;
 
   return (
     <div className={`rounded-lg border p-3 ${regla.activa ? "border-slate-200" : "border-slate-100 bg-slate-50 opacity-70"}`}>
@@ -170,6 +175,20 @@ function FilaRegla({
                   size="xs"
                 />
               )}
+              {campo.tipo === "plato" && (
+                <select
+                  value={params[campo.nombre] ?? ""}
+                  onChange={(e) => setParams({ ...params, [campo.nombre]: e.target.value })}
+                  className="w-56 rounded-md border border-slate-200 px-2 py-1 text-xs outline-none focus:border-fucsia-400"
+                >
+                  <option value="">— elegir plato —</option>
+                  {dishes.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.nombre}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           ))}
 
@@ -194,6 +213,13 @@ function FilaRegla({
           )}
         </div>
       </div>
+
+      {platoSeleccionado && platoSeleccionado.frecuencia_especial === "ninguna" && (
+        <p className="mt-2 text-xs text-fucsia-600">
+          ⚠ "{platoSeleccionado.nombre}" no tiene "frecuencia especial" configurada en el Catálogo — marca ahí "semana por
+          medio" o "una vez al mes" para que esta regla pueda asegurar su aparición.
+        </p>
+      )}
 
       {excepciones.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">

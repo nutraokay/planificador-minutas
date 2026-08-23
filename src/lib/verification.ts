@@ -21,7 +21,7 @@ export interface ResultadoSemana {
   resultados: ResultadoReglaSemana[];
 }
 
-export function etiquetaRegla(rule: RandomizationRule): string {
+export function etiquetaRegla(rule: RandomizationRule, dishesById?: Map<string, Dish>): string {
   const base = RULE_DEFS[rule.tipo].etiqueta;
   const p = rule.parametros as Record<string, any>;
   switch (rule.tipo) {
@@ -33,6 +33,11 @@ export function etiquetaRegla(rule: RandomizationRule): string {
       return p.tag ? `${base} (${p.tag})` : `${base} (sin configurar)`;
     case "composicion_semanal_minima":
       return p.tag ? `${base} (${p.tag} ≥${p.minimo ?? 1})` : `${base} (sin configurar)`;
+    case "plato_obligatorio_frecuencia": {
+      if (!p.dish_id) return `${base} (sin configurar)`;
+      const dish = dishesById?.get(p.dish_id as string);
+      return dish ? `${base} (${dish.nombre})` : `${base} (plato no encontrado)`;
+    }
     default:
       return base;
   }
@@ -81,16 +86,17 @@ export function verificarMinuta(input: VerificarInput): ResultadoSemana[] {
     const asignHastaAhora = asignacionesPorSemana.slice(0, i + 1).flat();
     const lunesISO = formatFecha(semana.lunes);
 
+    const esUltimaSemana = i === semanas.length - 1;
     const resultadosRegla: ResultadoReglaSemana[] = reglasActivas.map((regla) => {
       const excepcionada = excMap.get(regla.id)?.has(lunesISO) ?? false;
       if (excepcionada) {
-        return { ruleId: regla.id, tipo: regla.tipo, etiqueta: etiquetaRegla(regla), estado: "excepcionada", detalles: [] };
+        return { ruleId: regla.id, tipo: regla.tipo, etiqueta: etiquetaRegla(regla, dishesById), estado: "excepcionada", detalles: [] };
       }
-      const detalles = auditarRegla(regla, asignSemana, asignPrevia, asignHastaAhora);
+      const detalles = auditarRegla(regla, asignSemana, asignPrevia, asignHastaAhora, dishesById, semana.indice, esUltimaSemana);
       return {
         ruleId: regla.id,
         tipo: regla.tipo,
-        etiqueta: etiquetaRegla(regla),
+        etiqueta: etiquetaRegla(regla, dishesById),
         estado: detalles.length === 0 ? "cumple" : "incumple",
         detalles,
       };
@@ -112,6 +118,9 @@ function auditarRegla(
   semana: Asignacion[],
   semanaAnterior: Asignacion[],
   hastaAhora: Asignacion[],
+  dishesById: Map<string, Dish>,
+  semanaIndice: number,
+  esUltimaSemana: boolean,
 ): string[] {
   const p = regla.parametros as Record<string, any>;
   const detalles: string[] = [];
@@ -251,6 +260,34 @@ function auditarRegla(
       const cuenta = semana.filter((a) => tieneTag(a.dish.tags, tag)).length;
       if (cuenta < minimo) {
         detalles.push(`Solo ${cuenta} día(s) con "${tag}" esta semana (mínimo ${minimo})`);
+      }
+      break;
+    }
+
+    case "plato_obligatorio_frecuencia": {
+      const dishId = (p.dish_id as string) || "";
+      if (!dishId) break;
+      const dishObjetivo = dishesById.get(dishId);
+      if (!dishObjetivo) {
+        detalles.push("El plato configurado en esta regla ya no existe en el catálogo");
+        break;
+      }
+
+      if (dishObjetivo.frecuencia_especial === "semana_por_medio") {
+        const paridad = paridadEstable(dishObjetivo.id);
+        const semanaEsImpar = semanaIndice % 2 === 1;
+        const leCorresponde = paridad === 0 ? semanaEsImpar : !semanaEsImpar;
+        if (!leCorresponde) break; // esta semana no le toca a este plato
+        const presente = semana.some((a) => a.dish.id === dishObjetivo.id);
+        if (!presente) detalles.push(`"${dishObjetivo.nombre}" no apareció esta semana (le corresponde, es "semana por medio")`);
+      } else if (dishObjetivo.frecuencia_especial === "una_vez_al_mes") {
+        // Se evalúa recién al cierre del mes para no marcar ✗ en las
+        // primeras semanas solo porque todavía no le tocó aparecer.
+        if (!esUltimaSemana) break;
+        const presente = hastaAhora.some((a) => a.dish.id === dishObjetivo.id);
+        if (!presente) detalles.push(`"${dishObjetivo.nombre}" no apareció ningún día este mes (es obligatorio "una vez al mes")`);
+      } else {
+        detalles.push(`"${dishObjetivo.nombre}" no tiene frecuencia especial configurada en el catálogo (marca "semana por medio" o "una vez al mes")`);
       }
       break;
     }

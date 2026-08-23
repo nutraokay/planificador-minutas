@@ -129,7 +129,8 @@ create table if not exists public.randomization_rules (
     'dias_permitidos',
     'restriccion_por_palabra',
     'mismo_tipo_no_repite_dia_semana',
-    'composicion_semanal_minima'
+    'composicion_semanal_minima',
+    'plato_obligatorio_frecuencia'
   )),
   parametros jsonb not null default '{}'::jsonb,
   activa boolean not null default true,
