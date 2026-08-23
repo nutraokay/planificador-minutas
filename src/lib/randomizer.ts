@@ -8,7 +8,7 @@ import {
   type Asignacion,
   type SlotCtx,
 } from "./ruleEngine";
-import { esPlatoViernes, tieneTag } from "./text";
+import { esAcompanamiento, esPlatoDeFondo, esPlatoViernes, tieneTag } from "./text";
 
 export interface SlotGenerado {
   fecha: string;
@@ -115,11 +115,17 @@ export function generarMinuta(input: GenerarMinutaInput): SlotGenerado[] {
         const ctx: SlotCtx = { fecha, diaSemana, semanaIndice: semana.indice };
         const reglasHoy = reglasVigentes(rules, excMap, lunesISO);
 
-        // El viernes elige solo del pool plato_viernes. El resto de la semana
-        // usa el catálogo completo — un plato marcado plato_viernes puede
-        // seguir sirviendo otros días si también cabe ahí (no es exclusivo
-        // del viernes, es un mínimo garantizado para ese día).
-        let poolBase = dishesActivos;
+        // Opción 1 (y el único slot de los días con 1 plato) es siempre un
+        // plato de fondo (proteína, legumbre o plato completo) — nunca un
+        // acompañamiento suelto. Opción 2 es siempre un acompañamiento, para
+        // que se combinen (ej: Chapsui de vacuno + Arroz chaufán) en vez de
+        // salir dos platos de fondo o un acompañamiento solo.
+        //
+        // El viernes elige solo del pool plato_viernes. El resto de la
+        // semana usa el catálogo completo — un plato marcado plato_viernes
+        // puede seguir sirviendo otros días si también cabe ahí (no es
+        // exclusivo del viernes, es un mínimo garantizado para ese día).
+        let poolBase = dishesActivos.filter((d) => (slot === 1 ? esPlatoDeFondo(d.tags) : esAcompanamiento(d.tags)));
         if (esViernes) {
           poolBase = poolBase.filter((d) => esPlatoViernes(d.tags));
         }
@@ -216,7 +222,9 @@ export function generarMinuta(input: GenerarMinutaInput): SlotGenerado[] {
 
           const diaSemana = diaSemanaISO(new Date(`${s.fecha}T12:00:00Z`));
           const esViernes = diaSemana === 5;
-          let poolBase = dishesActivos.filter((d) => tieneTag(d.tags, tag));
+          let poolBase = dishesActivos.filter(
+            (d) => tieneTag(d.tags, tag) && (s.slot === 1 ? esPlatoDeFondo(d.tags) : esAcompanamiento(d.tags)),
+          );
           if (esViernes) poolBase = poolBase.filter((d) => esPlatoViernes(d.tags));
 
           const ctx: SlotCtx = { fecha: s.fecha, diaSemana, semanaIndice: semana.indice };

@@ -20,6 +20,18 @@ export function esPlatoViernes(tags: string[]): boolean {
   return tieneTag(tags, "plato_viernes");
 }
 
+/** Tags que marcan un plato como NO apto para ir de "plato de fondo" en
+ * Opción 1 (ensaladas, postres, misceláneos) — se suman a "acompañamiento",
+ * que tampoco entra ahí. */
+const TAGS_NO_PLATO_DE_FONDO = ["acompañamiento", "ensalada", "postre", "miscelaneo", "misceláneo"];
+
+/** Opción 1 (y el único slot de días con 1 plato) se llena solo con "platos
+ * de fondo": proteínas, legumbres o platos completos — nunca un
+ * acompañamiento suelto, ni ensaladas/postres/misceláneos si se marcan así. */
+export function esPlatoDeFondo(tags: string[]): boolean {
+  return !TAGS_NO_PLATO_DE_FONDO.some((t) => tieneTag(tags, t));
+}
+
 export function tagsProteina(tags: string[]): string[] {
   return tags.filter((t) => normalizar(t).startsWith("proteina:"));
 }
