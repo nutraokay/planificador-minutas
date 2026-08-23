@@ -269,16 +269,29 @@ export function generarMinuta(input: GenerarMinutaInput): SlotGenerado[] {
 
       // Varias reglas de composición compiten por los mismos cupos escasos
       // de la semana (ej: legumbre, pescado, cerdo, pollo, vacuno, fritura,
-      // platos completos...). Se procesan de la más difícil de cumplir a la
-      // más fácil (menos platos elegibles en el catálogo primero), para que
-      // una regla con muchas opciones no le gane el cupo a una con pocas.
+      // platos completos...). Legumbre y pescado se procesan siempre
+      // primero (a pedido explícito) — son innegociables en la minuta.
+      // Entre el resto, se procesa de la más difícil de cumplir a la más
+      // fácil (menos platos elegibles en el catálogo primero), para que una
+      // regla con muchas opciones no le gane el cupo a una con pocas.
+      const TAGS_PRIORIDAD_MAXIMA = new Set(["legumbre", "proteina:pescado"]);
       const reglasOrdenadas = [...reglasVigentes(reglasComposicion, excMap, lunesISO)].sort((a, b) => {
         const tagA = ((a.parametros as any).tag as string) || "";
         const tagB = ((b.parametros as any).tag as string) || "";
+        const prioA = TAGS_PRIORIDAD_MAXIMA.has(tagA) ? 0 : 1;
+        const prioB = TAGS_PRIORIDAD_MAXIMA.has(tagB) ? 0 : 1;
+        if (prioA !== prioB) return prioA - prioB;
         const nA = dishesActivos.filter((d) => tieneTag(d.tags, tagA) && esPlatoDeFondo(d.tags)).length;
         const nB = dishesActivos.filter((d) => tieneTag(d.tags, tagB) && esPlatoDeFondo(d.tags)).length;
         return nA - nB;
       });
+
+      // Una vez que un día queda usado para cumplir una regla (de forma
+      // natural o por recolocación), se bloquea para las reglas que se
+      // procesan después — si no, una regla de menor prioridad podía
+      // "robarle" el día a una regla ya cumplida (ej: pollo pisando el día
+      // que ya se le había asignado a legumbre).
+      const indicesBloqueados = new Set<number>();
 
       for (const regla of reglasOrdenadas) {
         const tag = (regla.parametros as any).tag as string;
@@ -291,7 +304,13 @@ export function generarMinuta(input: GenerarMinutaInput): SlotGenerado[] {
           return d ? tieneTag(d.tags, tag) : false;
         };
 
-        let actuales = indicesSemana.filter((i) => cumpleTag(salida[i].dish_id)).length;
+        let actuales = 0;
+        for (const i of indicesSemana) {
+          if (cumpleTag(salida[i].dish_id)) {
+            actuales += 1;
+            indicesBloqueados.add(i); // ya cumple esta regla: queda fijo
+          }
+        }
         if (actuales >= minimo) continue;
 
         // Orden al azar (no siempre el lunes primero) para que el día que
@@ -301,6 +320,7 @@ export function generarMinuta(input: GenerarMinutaInput): SlotGenerado[] {
           const s = salida[i];
           if (s.es_manual) continue;
           if (cumpleTag(s.dish_id)) continue;
+          if (indicesBloqueados.has(i)) continue; // ya reservado por otra regla
 
           const diaSemana = diaSemanaISO(new Date(`${s.fecha}T12:00:00Z`));
           const esViernes = diaSemana === 5;
@@ -345,6 +365,7 @@ export function generarMinuta(input: GenerarMinutaInput): SlotGenerado[] {
             if (hIdx >= 0) historial[hIdx] = { ...historial[hIdx], dish: nuevoDish };
             else historial.push({ fecha: s.fecha, diaSemana, semanaIndice: semana.indice, slot: s.slot, dish: nuevoDish, esManual: false });
             actuales += 1;
+            indicesBloqueados.add(i);
           }
         }
         // Si tras intentar recolocar sigue sin cumplirse, no se fuerza más:
