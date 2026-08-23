@@ -20,12 +20,20 @@ const DISH_VACIO: DishInput = {
   activo: true,
 };
 
+function mensajeError(e: unknown): string {
+  if (e && typeof e === "object" && "message" in e && typeof (e as any).message === "string") {
+    return (e as any).message;
+  }
+  return "Ocurrió un error inesperado. Intenta de nuevo.";
+}
+
 export function CatalogoPlatos() {
   const { dishes, cargando, crear, crearVarios, actualizar, eliminar } = useDishes();
   const [mostrarImport, setMostrarImport] = useState(false);
   const [nuevo, setNuevo] = useState<DishInput | null>(null);
   const [filtro, setFiltro] = useState("");
   const [soloActivos, setSoloActivos] = useState(false);
+  const [errorGuardado, setErrorGuardado] = useState<string | null>(null);
 
   if (cargando) return <PantallaCargando />;
 
@@ -37,8 +45,33 @@ export function CatalogoPlatos() {
 
   async function guardarNuevo() {
     if (!nuevo || !nuevo.nombre.trim()) return;
-    await crear(nuevo);
-    setNuevo(null);
+    setErrorGuardado(null);
+    try {
+      await crear(nuevo);
+      setNuevo(null);
+    } catch (e) {
+      setErrorGuardado(mensajeError(e));
+    }
+  }
+
+  async function actualizarConError(id: string, cambios: Partial<DishInput>): Promise<boolean> {
+    setErrorGuardado(null);
+    try {
+      await actualizar(id, cambios);
+      return true;
+    } catch (e) {
+      setErrorGuardado(mensajeError(e));
+      return false;
+    }
+  }
+
+  async function eliminarConError(id: string) {
+    setErrorGuardado(null);
+    try {
+      await eliminar(id);
+    } catch (e) {
+      setErrorGuardado(mensajeError(e));
+    }
   }
 
   return (
@@ -56,13 +89,23 @@ export function CatalogoPlatos() {
             Importar desde Excel
           </button>
           <button
-            onClick={() => setNuevo(DISH_VACIO)}
+            onClick={() => {
+              setErrorGuardado(null);
+              setNuevo(DISH_VACIO);
+            }}
             className="rounded-lg bg-fucsia-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-fucsia-700"
           >
             + Nuevo plato
           </button>
         </div>
       </div>
+
+      {errorGuardado && (
+        <div className="mt-4 rounded-lg border border-fucsia-200 bg-fucsia-50 px-3 py-2 text-sm text-fucsia-800">
+          <span className="font-semibold">No se pudo guardar: </span>
+          {errorGuardado}
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <input
@@ -101,7 +144,12 @@ export function CatalogoPlatos() {
               />
             )}
             {visibles.map((d) => (
-              <FilaPlato key={d.id} dish={d} onGuardar={(cambios) => actualizar(d.id, cambios)} onEliminar={() => eliminar(d.id)} />
+              <FilaPlato
+                key={d.id}
+                dish={d}
+                onGuardar={(cambios) => actualizarConError(d.id, cambios)}
+                onEliminar={() => eliminarConError(d.id)}
+              />
             ))}
             {visibles.length === 0 && !nuevo && (
               <tr>
@@ -121,7 +169,15 @@ export function CatalogoPlatos() {
   );
 }
 
-function FilaPlato({ dish, onGuardar, onEliminar }: { dish: Dish; onGuardar: (c: Partial<DishInput>) => void; onEliminar: () => void }) {
+function FilaPlato({
+  dish,
+  onGuardar,
+  onEliminar,
+}: {
+  dish: Dish;
+  onGuardar: (c: Partial<DishInput>) => Promise<boolean>;
+  onEliminar: () => void;
+}) {
   const [editando, setEditando] = useState(false);
   const [valor, setValor] = useState<DishInput>(dish);
 
@@ -130,9 +186,9 @@ function FilaPlato({ dish, onGuardar, onEliminar }: { dish: Dish; onGuardar: (c:
       <FilaEdicion
         dish={valor}
         onChange={setValor}
-        onGuardar={() => {
-          onGuardar(valor);
-          setEditando(false);
+        onGuardar={async () => {
+          const ok = await onGuardar(valor);
+          if (ok) setEditando(false);
         }}
         onCancelar={() => {
           setValor(dish);
