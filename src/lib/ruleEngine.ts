@@ -94,7 +94,14 @@ export function violacionesDuras(
       }
 
       case "no_repetir_semana_siguiente": {
-        const repetido = historial.find((h) => mismaOSemanaAnterior(h, ctx.semanaIndice) && h.dish.id === dish.id);
+        // El acompañamiento compartido del día aparece "dos veces" el mismo
+        // día (Opción 1 y 2) a propósito — eso no cuenta como repetición.
+        const repetido = historial.find(
+          (h) =>
+            mismaOSemanaAnterior(h, ctx.semanaIndice) &&
+            h.dish.id === dish.id &&
+            !(h.fecha === ctx.fecha && esAcompanamiento(dish.tags)),
+        );
         if (repetido) {
           violaciones.push({
             tipo: regla.tipo,
@@ -130,10 +137,15 @@ export function violacionesDuras(
           const choque = historial.find((h) => {
             if (h.semanaIndice !== ctx.semanaIndice) return false;
             if (!esAcompanamiento(h.dish.tags) && !h.dish.familia) return false;
-            const mismoGrupo =
-              h.dish.id === dish.id || (!!h.dish.familia && !!dish.familia && h.dish.familia === dish.familia);
-            if (!mismoGrupo) return false;
-            return Math.abs(h.diaSemana - ctx.diaSemana) <= n;
+            const mismoDish = h.dish.id === dish.id;
+            const mismaFamilia = !!h.dish.familia && !!dish.familia && h.dish.familia === dish.familia;
+            if (!mismoDish && !mismaFamilia) return false;
+            const diff = Math.abs(h.diaSemana - ctx.diaSemana);
+            // diff === 0 con el MISMO plato es el acompañamiento compartido
+            // entre Opción 1 y 2 ese día — no es una repetición. Dos platos
+            // *distintos* de la misma familia el mismo día sí cuenta.
+            if (mismoDish && diff === 0) return false;
+            return diff <= n;
           });
           if (choque) {
             violaciones.push({

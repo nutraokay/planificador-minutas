@@ -118,8 +118,18 @@ function auditarRegla(
 
   switch (regla.tipo) {
     case "no_repetir_semana_siguiente": {
-      const porDish = new Map<string, Asignacion[]>();
+      // El acompañamiento compartido del día aparece dos veces el mismo día
+      // (Opción 1 y 2) a propósito — se cuenta como una sola aparición, en
+      // ambos chequeos (misma semana y semana anterior).
+      const semanaSinDuplicadosDelDia: Asignacion[] = [];
       for (const a of semana) {
+        const yaEsta =
+          esAcompanamiento(a.dish.tags) && semanaSinDuplicadosDelDia.some((x) => x.fecha === a.fecha && x.dish.id === a.dish.id);
+        if (!yaEsta) semanaSinDuplicadosDelDia.push(a);
+      }
+
+      const porDish = new Map<string, Asignacion[]>();
+      for (const a of semanaSinDuplicadosDelDia) {
         if (!porDish.has(a.dish.id)) porDish.set(a.dish.id, []);
         porDish.get(a.dish.id)!.push(a);
       }
@@ -128,7 +138,7 @@ function auditarRegla(
           detalles.push(`"${lista[0].dish.nombre}" se repite esta semana (${lista.map((a) => fmtCorta(a.fecha)).join(", ")})`);
         }
       }
-      for (const a of semana) {
+      for (const a of semanaSinDuplicadosDelDia) {
         const prev = semanaAnterior.find((h) => h.dish.id === a.dish.id);
         if (prev) detalles.push(`"${a.dish.nombre}" repite con la semana anterior (${fmtCorta(prev.fecha)} y ${fmtCorta(a.fecha)})`);
       }
@@ -159,8 +169,14 @@ function auditarRegla(
         for (let j = idx + 1; j < acomps.length; j++) {
           const a = acomps[idx];
           const b = acomps[j];
-          const mismoGrupo = a.dish.id === b.dish.id || (!!a.dish.familia && !!b.dish.familia && a.dish.familia === b.dish.familia);
-          if (mismoGrupo && Math.abs(a.diaSemana - b.diaSemana) <= n) {
+          const mismoDish = a.dish.id === b.dish.id;
+          const mismaFamilia = !!a.dish.familia && !!b.dish.familia && a.dish.familia === b.dish.familia;
+          const diff = Math.abs(a.diaSemana - b.diaSemana);
+          // diff === 0 con el MISMO plato es el acompañamiento compartido
+          // entre Opción 1 y 2 ese día — no es una repetición. Dos platos
+          // distintos de la misma familia el mismo día sí cuenta.
+          const esRepeticion = mismoDish ? diff > 0 && diff <= n : mismaFamilia && diff <= n;
+          if (esRepeticion) {
             detalles.push(`"${a.dish.nombre}" (${fmtCorta(a.fecha)}) y "${b.dish.nombre}" (${fmtCorta(b.fecha)}) son el mismo acompañamiento con menos de ${n} día(s) de por medio`);
           }
         }
