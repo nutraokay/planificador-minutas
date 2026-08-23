@@ -30,6 +30,15 @@ export interface GenerarMinutaInput {
   slotsExistentes: DailySlot[];
 }
 
+function mezclar<T>(arr: T[]): T[] {
+  const copia = [...arr];
+  for (let i = copia.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copia[i], copia[j]] = [copia[j], copia[i]];
+  }
+  return copia;
+}
+
 function elegirAleatorio<T>(pool: T[]): T {
   return pool[Math.floor(Math.random() * pool.length)];
 }
@@ -272,7 +281,9 @@ export function generarMinuta(input: GenerarMinutaInput): SlotGenerado[] {
         let actuales = indicesSemana.filter((i) => cumpleTag(salida[i].dish_id)).length;
         if (actuales >= minimo) continue;
 
-        for (const i of indicesSemana) {
+        // Orden al azar (no siempre el lunes primero) para que el día que
+        // termina recibiendo el plato obligatorio varíe entre corridas.
+        for (const i of mezclar(indicesSemana)) {
           if (actuales >= minimo) break;
           const s = salida[i];
           if (s.es_manual) continue;
