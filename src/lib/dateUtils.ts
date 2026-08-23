@@ -46,46 +46,60 @@ export function diaSemanaISO(date: Date): number {
 export interface SemanaDelMes {
   /** Índice 1-based de la semana dentro del mes planificado (orden cronológico). */
   indice: number;
-  /** Lunes de esa semana calendario (puede caer fuera del mes si la semana está partida). */
+  /** Lunes de esa semana calendario — siempre cae dentro del mes planificado. */
   lunes: Date;
-  /** Días hábiles (lun-vie) de esa semana que caen dentro del mes planificado. */
+  /** Días hábiles (lun-vie) de esa semana — siempre 5 días. Si el mes no
+   * termina en viernes, los últimos días de la semana pertenecen al mes
+   * siguiente (se "completan" acá en vez de dejar una semana cortada). */
   dias: Date[];
 }
 
 /**
- * Agrupa los días hábiles (lunes a viernes) de un mes en semanas calendario.
- * `mes` es 1-12. La primera/última semana puede tener menos de 5 días si el
- * mes no empieza en lunes o no termina en viernes.
+ * Agrupa los días hábiles (lunes a viernes) de un mes en semanas calendario
+ * completas. `mes` es 1-12.
+ *
+ * Cada semana queda "dueña" del mes que contiene su lunes, y siempre se
+ * muestra completa (lunes a viernes) aunque el jueves/viernes caigan en el
+ * mes siguiente — así nunca se ve una semana de 1 o 2 días sueltos. Como
+ * contraparte, si el mes no empieza en lunes, los primeros días hábiles ya
+ * quedaron mostrados como el cierre del mes anterior (misma regla, mirada
+ * desde el otro lado) y no se repiten acá.
  */
 export function getSemanasHabilesDelMes(anio: number, mes: number): SemanaDelMes[] {
   const primerDia = new Date(Date.UTC(anio, mes - 1, 1, 12));
-  const ultimoDia = new Date(Date.UTC(anio, mes, 0, 12));
+  const diaISO1 = diaSemanaISO(primerDia);
 
-  const semanas = new Map<string, SemanaDelMes>();
-  let indice = 0;
-  const ordenSemanas: string[] = [];
-
-  for (
-    let d = new Date(primerDia);
-    d.getTime() <= ultimoDia.getTime();
-    d.setUTCDate(d.getUTCDate() + 1)
-  ) {
-    const diaISO = diaSemanaISO(d);
-    if (diaISO > 5) continue; // salta sábado/domingo
-
-    const lunes = new Date(d);
-    lunes.setUTCDate(lunes.getUTCDate() - (diaISO - 1));
-    const key = formatFecha(lunes);
-
-    if (!semanas.has(key)) {
-      indice += 1;
-      ordenSemanas.push(key);
-      semanas.set(key, { indice, lunes, dias: [] });
-    }
-    semanas.get(key)!.dias.push(new Date(d));
+  // Lunes de la semana que contiene el día 1 del mes.
+  const lunes = new Date(primerDia);
+  if (diaISO1 <= 5) {
+    lunes.setUTCDate(lunes.getUTCDate() - (diaISO1 - 1));
+  } else {
+    // El día 1 cae sábado o domingo: el próximo día hábil ya es lunes.
+    lunes.setUTCDate(lunes.getUTCDate() + (diaISO1 === 6 ? 2 : 1));
   }
 
-  return ordenSemanas.map((key) => semanas.get(key)!);
+  // Si ese lunes es del mes anterior, esa semana ya se mostró completa al
+  // cierre del mes anterior — se arranca desde la semana siguiente.
+  if (lunes.getUTCMonth() !== mes - 1 || lunes.getUTCFullYear() !== anio) {
+    lunes.setUTCDate(lunes.getUTCDate() + 7);
+  }
+
+  const semanas: SemanaDelMes[] = [];
+  let indice = 0;
+
+  while (lunes.getUTCMonth() === mes - 1 && lunes.getUTCFullYear() === anio) {
+    indice += 1;
+    const dias: Date[] = [];
+    for (let i = 0; i < 5; i++) {
+      const dia = new Date(lunes);
+      dia.setUTCDate(dia.getUTCDate() + i);
+      dias.push(dia);
+    }
+    semanas.push({ indice, lunes: new Date(lunes), dias });
+    lunes.setUTCDate(lunes.getUTCDate() + 7);
+  }
+
+  return semanas;
 }
 
 export function mesLabel(anio: number, mes: number): string {
