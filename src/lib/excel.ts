@@ -90,24 +90,53 @@ export function mapearFilasADishes(filas: Record<string, unknown>[], mapeo: Part
 // catálogo con los tags correctos, sin pedir mapeo manual.
 // ─────────────────────────────────────────────────────────────────────────
 
+export interface ColumnaProteina {
+  columna: string;
+  /** Tag fijo si el encabezado ya dice el tipo (VACUNO, POLLO, LEGUMBRES...).
+   * null = encabezado genérico ("Proteína") — el tipo se infiere por plato, palabra por palabra. */
+  tagFijo: string | null;
+}
+
 export interface DeteccionSecciones {
   detectado: boolean;
-  columnaProteina?: string;
+  columnasProteina: ColumnaProteina[];
   columnaAcompanamiento?: string;
   columnaPlatosCompletos?: string;
   columnaPlatosViernes?: string;
 }
 
+/** Encabezados de columna que ya declaran el tipo de proteína/categoría, sin
+ * necesidad de adivinar por el nombre del plato. Cubre tanto un catálogo con
+ * una sola columna "Proteína" genérica como uno separado por tipo (formato
+ * más preciso, como VACUNO / POLLO / CERDO / PESCADO / LEGUMBRES). */
+const COLUMNAS_PROTEINA_CONOCIDAS: { patron: RegExp; tag: string | null }[] = [
+  { patron: /^vacuno$/, tag: "proteina:vacuno" },
+  { patron: /^pollo$/, tag: "proteina:pollo" },
+  { patron: /^cerdo$/, tag: "proteina:cerdo" },
+  { patron: /^pescado$/, tag: "proteina:pescado" },
+  { patron: /legumbre/, tag: "legumbre" },
+  { patron: /fritura/, tag: "fritura_envasada" },
+  { patron: /proteina/, tag: null },
+];
+
 export function detectarLayoutPorSecciones(encabezados: string[]): DeteccionSecciones {
   const buscar = (pred: (h: string) => boolean) => encabezados.find((h) => pred(normalizar(h)));
-  const columnaProteina = buscar((h) => h.includes("proteina"));
+
+  const columnasProteina: ColumnaProteina[] = [];
+  for (const h of encabezados) {
+    const n = normalizar(h);
+    const match = COLUMNAS_PROTEINA_CONOCIDAS.find((m) => m.patron.test(n));
+    if (match) columnasProteina.push({ columna: h, tagFijo: match.tag });
+  }
+
   const columnaAcompanamiento = buscar((h) => h.includes("acompan"));
   const columnaPlatosCompletos = buscar((h) => h.includes("plato") && h.includes("completo"));
   const columnaPlatosViernes = buscar((h) => h.includes("viernes"));
+
   return {
-    // con proteína + acompañamiento ya alcanza para reconocer este formato
-    detectado: Boolean(columnaProteina && columnaAcompanamiento),
-    columnaProteina,
+    // con al menos una columna tipo proteína + acompañamiento ya alcanza para reconocer este formato
+    detectado: columnasProteina.length > 0 && Boolean(columnaAcompanamiento),
+    columnasProteina,
     columnaAcompanamiento,
     columnaPlatosCompletos,
     columnaPlatosViernes,
@@ -180,25 +209,36 @@ export function parseLayoutPorSecciones(
   filas: Record<string, unknown>[],
   deteccion: DeteccionSecciones,
 ): ResultadoImportacionSecciones {
-  const proteinas = deteccion.columnaProteina ? valoresColumna(filas, deteccion.columnaProteina) : [];
+  // Junta las columnas de proteína (puede ser una sola "Proteína" genérica, o
+  // varias ya tipadas: VACUNO, POLLO, CERDO, PESCADO, LEGUMBRES...),
+  // combinando por nombre de plato si el mismo apareciera en más de una.
+  const proteinasPorNombre = new Map<string, { nombre: string; tags: Set<string> }>();
+  for (const col of deteccion.columnasProteina) {
+    for (const nombre of valoresColumna(filas, col.columna)) {
+      const key = normalizar(nombre);
+      if (!proteinasPorNombre.has(key)) proteinasPorNombre.set(key, { nombre, tags: new Set() });
+      const tag = col.tagFijo ?? inferirTagProteina(nombre);
+      if (tag) proteinasPorNombre.get(key)!.tags.add(tag);
+    }
+  }
+  const proteinas = [...proteinasPorNombre.values()];
+
   const acompanamientos = deteccion.columnaAcompanamiento ? valoresColumna(filas, deteccion.columnaAcompanamiento) : [];
   const platosCompletos = deteccion.columnaPlatosCompletos ? valoresColumna(filas, deteccion.columnaPlatosCompletos) : [];
   const platosViernes = deteccion.columnaPlatosViernes ? valoresColumna(filas, deteccion.columnaPlatosViernes) : [];
 
   const viernesKeys = new Set(platosViernes.map(normalizar));
-  const proteinaKeys = new Set(proteinas.map(normalizar));
+  const proteinaKeys = new Set(proteinas.map((p) => normalizar(p.nombre)));
   let combinados = 0;
   const dishes: DishInput[] = [];
 
-  for (const nombre of proteinas) {
-    const tags: string[] = [];
-    const tagProteina = inferirTagProteina(nombre);
-    if (tagProteina) tags.push(tagProteina);
+  for (const { nombre, tags } of proteinas) {
+    const tagsFinal = [...tags];
     if (viernesKeys.has(normalizar(nombre))) {
-      tags.push("plato_viernes");
+      tagsFinal.push("plato_viernes");
       combinados += 1;
     }
-    dishes.push({ nombre, tags, familia: null, dias_permitidos: null, frecuencia_especial: "ninguna", activo: true });
+    dishes.push({ nombre, tags: tagsFinal, familia: null, dias_permitidos: null, frecuencia_especial: "ninguna", activo: true });
   }
 
   // Platos de viernes que NO estaban ya en la lista de proteínas (los combinados ya se agregaron arriba).
