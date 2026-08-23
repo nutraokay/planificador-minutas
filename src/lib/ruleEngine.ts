@@ -120,11 +120,15 @@ export function violacionesDuras(
       }
 
       case "distancia_minima_acompanamiento": {
-        if (esAcompanamiento(dish.tags)) {
+        // Aplica a acompañamientos "puros" y también a cualquier plato que
+        // comparta familia con uno (ej: Carbonada/Charquicán/Pastel de papas
+        // son platos completos pero cuentan como "papa" para esta distancia,
+        // aunque no sean acompañamientos en sí).
+        if (esAcompanamiento(dish.tags) || dish.familia) {
           const n = typeof p.dias === "number" ? p.dias : 1;
           const choque = historial.find((h) => {
             if (h.semanaIndice !== ctx.semanaIndice) return false;
-            if (!esAcompanamiento(h.dish.tags)) return false;
+            if (!esAcompanamiento(h.dish.tags) && !h.dish.familia) return false;
             const mismoGrupo =
               h.dish.id === dish.id || (!!h.dish.familia && !!dish.familia && h.dish.familia === dish.familia);
             if (!mismoGrupo) return false;

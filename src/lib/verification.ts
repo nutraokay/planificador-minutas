@@ -163,7 +163,7 @@ function auditarRegla(
 
     case "distancia_minima_acompanamiento": {
       const n = typeof p.dias === "number" ? p.dias : 1;
-      const acomps = semana.filter((a) => esAcompanamiento(a.dish.tags));
+      const acomps = semana.filter((a) => esAcompanamiento(a.dish.tags) || a.dish.familia);
       for (let idx = 0; idx < acomps.length; idx++) {
         for (let j = idx + 1; j < acomps.length; j++) {
           const a = acomps[idx];
