@@ -16,12 +16,13 @@ export function Minuta() {
   const [anio, setAnio] = useState(hoy.getFullYear());
   const [mes, setMes] = useState(hoy.getMonth() + 1);
 
-  const { dishes, cargando: cargandoDishes } = useDishes();
-  const { rules, exceptions, cargando: cargandoRules } = useRules();
+  const { dishes, cargando: cargandoDishes, error: errorDishes } = useDishes();
+  const { rules, exceptions, cargando: cargandoRules, error: errorRules } = useRules();
   const {
     plan,
     slots,
     cargando: cargandoPlan,
+    error: errorPlan,
     aleatorizando,
     setPlatosDelDia,
     setSlotDish,
@@ -30,6 +31,7 @@ export function Minuta() {
   } = useWeeklyPlan(anio, mes);
 
   const cargando = cargandoDishes || cargandoRules || cargandoPlan;
+  const error = errorDishes || errorRules || errorPlan;
 
   const semanas = useMemo(() => getSemanasHabilesDelMes(anio, mes), [anio, mes]);
   const dishesById = useMemo(() => new Map(dishes.map((d) => [d.id, d])), [dishes]);
@@ -75,7 +77,20 @@ export function Minuta() {
     exportarMinutaExcel(mesLabel(anio, mes), filas);
   }
 
-  if (cargando || !plan) return <PantallaCargando />;
+  if (cargando) return <PantallaCargando />;
+
+  if (error || !plan) {
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-10">
+        <div className="rounded-xl border border-fucsia-200 bg-fucsia-50 p-5 text-sm text-fucsia-800">
+          <p className="font-semibold">No se pudo cargar la minuta del mes.</p>
+          <p className="mt-2">
+            {error ?? "No se encontró ni se pudo crear el plan mensual. Revisa que las tablas de Supabase estén creadas correctamente."}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6">
