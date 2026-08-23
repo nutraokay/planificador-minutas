@@ -131,20 +131,25 @@ export const RULE_TYPES_ORDENADOS: RuleType[] = [
 /**
  * Orden de relajación cuando el pool de candidatos queda vacío: se relaja
  * primero la regla más flexible (índice 0) y se sigue avanzando hasta que
- * aparezca algún candidato válido. `dias_permitidos` y `restriccion_por_palabra`
- * son las más rígidas — se relajan solo como último recurso, para no dejar
- * un slot sin plato asignado.
+ * aparezca algún candidato válido.
+ *
+ * `no_repetir_semana_siguiente` es la más rígida de todas — se relaja solo
+ * como el ÚLTIMO recurso posible, después de todo lo demás (incluso después
+ * de días permitidos y restricción por palabra). En la práctica esto la
+ * hace casi innegociable: con un catálogo normal, casi nunca hace falta
+ * relajarla. Solo se toca en el caso extremo de que ninguna otra
+ * combinación logre llenar el slot — la alternativa sería dejarlo vacío.
  */
 export const ORDEN_RELAJACION: RuleType[] = [
   "preferencia_dia_semana_distinto",
   "distancia_minima_acompanamiento",
-  "no_repetir_semana_siguiente",
   "no_repetir_proteina_semana_siguiente",
   "mismo_tipo_no_repite_dia_semana",
   "frecuencia_especial",
   "composicion_semanal_minima",
   "restriccion_por_palabra",
   "dias_permitidos",
+  "no_repetir_semana_siguiente",
 ];
 
 export function tagsDisponibles(dishesTags: string[][]): string[] {
