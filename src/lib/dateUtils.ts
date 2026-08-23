@@ -46,11 +46,13 @@ export function diaSemanaISO(date: Date): number {
 export interface SemanaDelMes {
   /** Índice 1-based de la semana dentro del mes planificado (orden cronológico). */
   indice: number;
-  /** Lunes de esa semana calendario — siempre cae dentro del mes planificado. */
+  /** Lunes de esa semana calendario (puede caer en el mes anterior si el mes
+   * planificado no empieza en lunes — se muestra igual, completa). */
   lunes: Date;
   /** Días hábiles (lun-vie) de esa semana — siempre 5 días. Si el mes no
-   * termina en viernes, los últimos días de la semana pertenecen al mes
-   * siguiente (se "completan" acá en vez de dejar una semana cortada). */
+   * empieza en lunes o no termina en viernes, esa semana "límite" se
+   * completa con días del mes vecino (se muestra igual en ambos meses,
+   * cada uno con su propia planificación/aleatorización para esos días). */
   dias: Date[];
 }
 
@@ -58,15 +60,19 @@ export interface SemanaDelMes {
  * Agrupa los días hábiles (lunes a viernes) de un mes en semanas calendario
  * completas. `mes` es 1-12.
  *
- * Cada semana queda "dueña" del mes que contiene su lunes, y siempre se
- * muestra completa (lunes a viernes) aunque el jueves/viernes caigan en el
- * mes siguiente — así nunca se ve una semana de 1 o 2 días sueltos. Como
- * contraparte, si el mes no empieza en lunes, los primeros días hábiles ya
- * quedaron mostrados como el cierre del mes anterior (misma regla, mirada
- * desde el otro lado) y no se repiten acá.
+ * Cada semana se muestra siempre completa (lunes a viernes), aunque eso
+ * signifique asomarse al mes anterior o al siguiente. Por diseño, la semana
+ * "límite" (la que contiene el día 1, o la que contiene el último día del
+ * mes) puede aparecer en dos meses consecutivos a la vez — por ejemplo, si
+ * septiembre empieza martes, la semana lunes 31/08–viernes 04/09 se ve
+ * completa tanto al final de agosto como al inicio de septiembre. Cada mes
+ * planifica esos días de forma independiente (son weekly_plans distintos),
+ * así que se puede aleatorizar septiembre sin tocar lo que quedó guardado
+ * en agosto para esos mismos días, y viceversa.
  */
 export function getSemanasHabilesDelMes(anio: number, mes: number): SemanaDelMes[] {
   const primerDia = new Date(Date.UTC(anio, mes - 1, 1, 12));
+  const ultimoDia = new Date(Date.UTC(anio, mes, 0, 12));
   const diaISO1 = diaSemanaISO(primerDia);
 
   // Lunes de la semana que contiene el día 1 del mes.
@@ -78,16 +84,10 @@ export function getSemanasHabilesDelMes(anio: number, mes: number): SemanaDelMes
     lunes.setUTCDate(lunes.getUTCDate() + (diaISO1 === 6 ? 2 : 1));
   }
 
-  // Si ese lunes es del mes anterior, esa semana ya se mostró completa al
-  // cierre del mes anterior — se arranca desde la semana siguiente.
-  if (lunes.getUTCMonth() !== mes - 1 || lunes.getUTCFullYear() !== anio) {
-    lunes.setUTCDate(lunes.getUTCDate() + 7);
-  }
-
   const semanas: SemanaDelMes[] = [];
   let indice = 0;
 
-  while (lunes.getUTCMonth() === mes - 1 && lunes.getUTCFullYear() === anio) {
+  while (lunes.getTime() <= ultimoDia.getTime()) {
     indice += 1;
     const dias: Date[] = [];
     for (let i = 0; i < 5; i++) {
