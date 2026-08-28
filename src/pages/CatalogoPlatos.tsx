@@ -4,6 +4,16 @@ import type { Dish, DishInput, FrecuenciaEspecial } from "../types/database";
 import { DiasPicker } from "../components/DiasPicker";
 import { ImportarExcelModal } from "../components/ImportarExcelModal";
 import { PantallaCargando } from "../components/PantallaCargando";
+import { esPlatoViernes } from "../lib/text";
+
+const TAG_PLATO_VIERNES = "plato_viernes";
+
+/** Agrega o quita el tag plato_viernes de una lista de tags, sin tocar el
+ * resto (para no pisar otros tags que el plato ya tenga). */
+function alternarPlatoViernes(tags: string[], marcar: boolean): string[] {
+  const sinPlatoViernes = tags.filter((t) => !esPlatoViernes([t]));
+  return marcar ? [...sinPlatoViernes, TAG_PLATO_VIERNES] : sinPlatoViernes;
+}
 
 const FRECUENCIAS: { valor: FrecuenciaEspecial; etiqueta: string }[] = [
   { valor: "ninguna", etiqueta: "Ninguna" },
@@ -129,6 +139,7 @@ export function CatalogoPlatos() {
               <th className="px-3 py-2.5">Familia</th>
               <th className="px-3 py-2.5">Días permitidos</th>
               <th className="px-3 py-2.5">Frecuencia especial</th>
+              <th className="px-3 py-2.5">Plato de viernes</th>
               <th className="px-3 py-2.5">Activo</th>
               <th className="px-3 py-2.5" />
             </tr>
@@ -153,7 +164,7 @@ export function CatalogoPlatos() {
             ))}
             {visibles.length === 0 && !nuevo && (
               <tr>
-                <td colSpan={7} className="px-3 py-8 text-center text-sm text-slate-400">
+                <td colSpan={8} className="px-3 py-8 text-center text-sm text-slate-400">
                   Sin platos todavía. Importa tu catálogo desde Excel o agrega uno nuevo.
                 </td>
               </tr>
@@ -215,6 +226,11 @@ function FilaPlato({
         {dish.dias_permitidos && dish.dias_permitidos.length > 0 ? dish.dias_permitidos.join(", ") : "Todos"}
       </td>
       <td className="px-3 py-2 text-slate-500">{FRECUENCIAS.find((f) => f.valor === dish.frecuencia_especial)?.etiqueta}</td>
+      <td className="px-3 py-2">
+        {esPlatoViernes(dish.tags) && (
+          <span className="rounded-full bg-fucsia-50 px-2 py-0.5 text-[11px] font-medium text-fucsia-700">Sí</span>
+        )}
+      </td>
       <td className="px-3 py-2">
         <span
           className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
@@ -296,6 +312,18 @@ function FilaEdicion({
             </option>
           ))}
         </select>
+      </td>
+      <td className="px-3 py-2">
+        <input
+          type="checkbox"
+          checked={esPlatoViernes(dish.tags)}
+          onChange={(e) => {
+            const nuevosTags = alternarPlatoViernes(dish.tags, e.target.checked);
+            setTagsTexto(nuevosTags.join(", "));
+            onChange({ ...dish, tags: nuevosTags });
+          }}
+          className="accent-fucsia-600"
+        />
       </td>
       <td className="px-3 py-2">
         <input type="checkbox" checked={dish.activo} onChange={(e) => onChange({ ...dish, activo: e.target.checked })} className="accent-fucsia-600" />
